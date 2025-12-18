@@ -1,0 +1,204 @@
+---
+title: "The second step after generating Seurat Object is to do QC and data exploration "
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+Author: Ridzky Yuda, Ph.D.
+Date: October 1st, 2024
+
+# Install Required Dependencies
+```{r}
+#remotes::install_github("satijalab/seurat", "seurat5", quiet = TRUE)
+#install.packages("sctransform")
+#install.packages("harmony")
+#BiocManager::install("harmony", version = "3.18")
+```
+
+# Activate the libraries
+```{r}
+library(Seurat)
+library(patchwork)
+library(sctransform)
+library(harmony)
+library(ggplot2)
+library(patchwork)
+library(tidyverse)
+```
+
+# Load Seurat Object data in RDS format
+```{r}
+# Load the RDS file from HSPC.merged.seurat.object.rds from the R project on 2024-07-23 analysis
+HSPC <- readRDS("~/scratch4-mjung9/ryuda1/RY27_LSK_scRNA-seq_scTE/2024-09-30_scTE_load_hd5ad_file/LSK.merged.seurat.object.rds")
+
+```
+
+# Pre-processsing QC analysis
+```{r}
+# assign the mitochondrial-derived reads and add to metadata
+HSPC[["percent.mt"]] <- PercentageFeatureSet(HSPC, pattern = "^mt-")
+
+head(HSPC@meta.data, 5)
+```
+
+
+```{r}
+# Calculate the Novelty Score by taking the log10 of the number of genes detected per cell and the log10 of the number of UMIs per cell, then divide the log10 number of genes by the log10 number of UMIs
+# Add number of genes per UMI for each cell to metadata
+HSPC$log10GenesPerUMI <- log10(HSPC$nFeature_RNA) / log10(HSPC$nCount_RNA)
+```
+
+```{r}
+# Create metadata dataframe
+metadata <- HSPC@meta.data
+
+# Add cell IDs to metadata
+metadata$cells <- rownames(metadata)
+```
+# Working on sample metadata
+```{r}
+
+# Rename columns
+metadata <- metadata %>%
+        dplyr::rename(seq_folder = orig.ident,
+                      nUMI = nCount_RNA,
+                      nGene = nFeature_RNA)
+```
+
+```{r}
+# Create sample column
+metadata$sample <- NA
+metadata$sample[which(str_detect(metadata$cells, "RY22_"))] <- "Old alcohol1"
+metadata$sample[which(str_detect(metadata$cells, "^RY23_"))] <- "Old alcohol2"
+metadata$sample[which(str_detect(metadata$cells, "^RY26_"))] <- "Old control"
+metadata$sample[which(str_detect(metadata$cells, "^RY33_"))] <- "Young alcohol"
+metadata$sample[which(str_detect(metadata$cells, "^RY36_"))] <- "Young control"
+
+```
+
+```{r}
+# Create Group column
+metadata$group <- NA
+metadata$group[which(str_detect(metadata$cells, "RY22_"))] <- "Old alcohol"
+metadata$group[which(str_detect(metadata$cells, "^RY23_"))] <- "Old alcohol"
+metadata$group[which(str_detect(metadata$cells, "^RY26_"))] <- "Old control"
+metadata$group[which(str_detect(metadata$cells, "^RY33_"))] <- "Young alcohol"
+metadata$group[which(str_detect(metadata$cells, "^RY36_"))] <- "Young control"
+
+```
+
+
+```{r}
+# Add metadata back to Seurat object
+HSPC@meta.data <- metadata
+```
+
+```{r}
+# Visualize the overall complexity of the gene expression by visualizing the genes detected per UMI (novelty score)
+metadata %>%
+  	ggplot(aes(x=log10GenesPerUMI, color = sample, fill=group)) +
+  	geom_density(alpha = 0.2) +
+  	theme_classic() +
+  	geom_vline(xintercept = 0.8) +
+    ggtitle(" Library Complexity based on gene counts detected perUMI")
+```
+
+```{r}
+# Visualize the correlation between genes detected and number of UMIs and determine whether strong presence of cells with low numbers of genes/UMIs
+# Visualize the correlation between genes detected and number of UMIs and determine whether strong presence of cells with low numbers of genes/UMIs
+metadata %>% 
+  	ggplot(aes(x=nUMI, y=nGene, color=percent.mt)) + 
+  	geom_point() + scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = 500) +
+  	geom_hline(yintercept = 250) +
+  	facet_wrap(~sample)
+```
+
+```{r}
+# Visualize QC metrics as a violin plot
+VlnPlot(HSPC, features = c("nUMI", "nGene", "percent.mt", "log10GenesPerUMI"), ncol = 4, pt.size = 0.0001)
+
+```
+
+# Filtering steps
+Cell level filtering
+Filtering steps are important step before performing normalization. Filtering steps can be done
+by subseting the matrix count data by selecting certain threshold of UMI and gene counts, library complexities as well as determining acceptable levels of mitochondria read contribution. Especially mitochondria, this can be have more leeway depending on the experimental setup because mitochondrial reads accumulation can happen due to our treatment and we do not want to loose biological information derived from treatment-derived mito reads. In the Seurat Tutorial, they suggested to remove cells (barcodes) containing more than 5% mitochondria from healthy untreated pbmc, but our experiments suggest that mitochondria is also somehow affected and thus we will retain some certain level of the mito reads. We can still anyway remove the dead cells by applying filter on the barcodes that contains less than 250 genes but having high level of mito reads. 
+```{r}
+# here I removed barcode or cells that contain less and more than 250 nFeature RNA as well as if the cells contain more than 5% mitochondrial genome-derived reads, which is usually due to cell stress during dying process. However, provided the previous observation suggesting alcohol effects on mitochondrial-derived reads. For now, I will not remove mt reads. Filtering for minimum 500 UMI, 250 genes, library complexity 0.8
+
+HSPCfiltered <- subset(x = HSPC, 
+                         subset= (nUMI >= 500) & 
+                           (nGene >= 250) & 
+                           (log10GenesPerUMI > 0.80)
+                  )
+			                          
+
+```
+
+Gene-level filtering
+Within our data we will have many genes with zero counts. These genes can dramatically reduce the average expression for a cell and so we will remove them from our data. We will start by identifying which genes have a zero count in each cell:
+```{r}
+# Extract counts
+
+counts<-LayerData(HSPCfiltered, assay = "RNA", layer = "counts") 
+```
+
+```{r}
+# Output a logical matrix specifying for each gene on whether or not there are more than zero counts per cell
+nonzero <- counts > 0
+```
+
+```{r}
+# SUMS all true values and returns TRUE if more than 10 TRUE values per gene
+
+keep_genes <- Matrix::rowSums(nonzero) >= 5
+
+# Only keeping those genes expressed in more than 10 cells
+filtered_counts<- counts[keep_genes, ]
+```
+
+Finally, take those filtered counts and create a new Seurat object for downstream analysis.
+```{r}
+# Reassign to filtered Seurat object
+HSPCfiltered2 <- CreateSeuratObject(filtered_counts, meta.data = HSPCfiltered@meta.data)
+```
+
+
+# Inspect QC metrics after filtering
+```{r}
+VlnPlot(HSPCfiltered, features = c("nUMI", "nGene", "percent.mt", "log10GenesPerUMI"), ncol = 4, pt.size = 0.0001)
+```
+
+
+```{r}
+# save filtered HSPC into RDS file
+saveRDS(HSPCfiltered, "HSPC_filtered_seurat_object.rds")
+```
+
+library complexities 
+```{r}
+HSPCfiltered@meta.data %>%
+  	ggplot(aes(x=log10GenesPerUMI, color = sample, fill=sample)) +
+  	geom_density(alpha = 0.2) +
+  	theme_classic() +
+  	geom_vline(xintercept = 0.8) +
+    ggtitle(" Library Complexity based on gene counts detected perUMI")
+```
+
+```{r}
+sessionInfo()
+```
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
