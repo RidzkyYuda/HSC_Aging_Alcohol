@@ -1,0 +1,144 @@
+---
+title: "Loading data and generating seurat objects from scTE analysis"
+output: html_notebook
+output: html_notebook
+author: Ridzky Yuda, Ph.D.
+Date: October 1st, 2024
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+library(Seurat)
+#devtools::install_github('satijalab/seurat-data')
+library(SeuratData)
+library(SeuratDisk)
+#if (!requireNamespace("remotes", quietly = TRUE)) {
+ # install.packages("remotes")
+#}
+#remotes::install_github("mojaveazure/seurat-disk")
+library(patchwork)
+library(sctransform)
+library(harmony)
+library(ggplot2)
+library(patchwork)
+library(sceasy)
+library(anndata)
+
+#if (!requireNamespace("BiocManager", quietly=TRUE)) {
+  #  install.packages("BiocManager")}
+#BiocManager::install("zellkonverter")
+```
+
+```{r}
+
+url <- "https://seurat.nygenome.org/pbmc3k_final.h5ad"
+curl::curl_download(url, basename(url))
+pbmc3k_final.h5seurat<-Convert("pbmc3k_final.h5ad", dest = "h5seurat", overwrite = TRUE, assay = 'RNA')
+pbmc3k <- LoadH5Seurat("pbmc3k_final.h5seurat")
+pbmc3k
+```
+
+
+```{r}
+#RY22_hdf5<-Convert("~/scratch4-mjung9/ryuda1/RY27_LSK_scRNA-seq_scTE/LSK_RY22/LSK_RY22.h5ad", dest = "h5seurat", overwrite = FALSE)
+
+#RY22<-LoadH5Seurat("~/scratch4-mjung9/ryuda1/RY27_LSK_scRNA-seq_scTE/LSK_RY22/LSK_RY22.h5ad", assays = 'RNA',meta.data = TRUE, verbose = TRUE)
+#RY22Seurat<-CreateSeuratObject(counts = RY22, project = "RY22", min.features = 100)
+```
+
+# Create seurat object for the sample RY22
+```{r}
+RY22<-sceasy::convertFormat("~/scratch4-mjung9/ryuda1/RY27_LSK_scRNA-seq_scTE/LSK_RY22/LSK_RY22.h5ad",from="anndata", to="seurat", outFile='filename.rds') # load h5ad and convert into Seurat object
+nCount_RNA = colSums(x = RY22, slot = "counts") # calculate nCount_RNA
+nFeature_RNA = colSums(x = LayerData(RY22, layer = "counts") > 0) # calculate nFeature_RNA
+RY22@meta.data<-cbind(RY22@meta.data, nCount_RNA, nFeature_RNA) # combine the nCount_RNA and nFeature_RNA into Seurat object metadata
+orig.ident <- "RY22" # make a new metadata column to show the sample name
+RY22@meta.data[["name"]] <- orig.ident # change the original barcode sequence in the metadata name with the sample name
+colnames(RY22@meta.data)[1] <- "orig.ident" # change the metadata column name "name" into "orig.ident" column name
+RY22@meta.data %>% head # check the result
+
+RY22_sample = CreateSeuratObject(counts = LayerData(RY22, assay = "RNA", layer = "counts"), project = "RY22", meta.data = c("orig.ident", "nCount_RNA", "nFeature_RNA"))
+
+```
+
+# Create seurat object for the sample RY23
+```{r}
+RY23<-sceasy::convertFormat("~/scratch4-mjung9/ryuda1/RY27_LSK_scRNA-seq_scTE/LSK_RY23/LSK_RY23.h5ad",from="anndata", to="seurat", outFile='filename.rds')
+nCount_RNA = colSums(x = RY23, slot = "counts") # calculate nCount_RNA
+nFeature_RNA = colSums(x = LayerData(RY23, layer = "counts") > 0) # calculate nFeature_RNA
+RY23@meta.data<-cbind(RY23@meta.data, nCount_RNA, nFeature_RNA) # combine the nCount_RNA and nFeature_RNA into Seurat object metadata
+orig.ident <- "RY23" # make a new metadata column to show the sample name
+RY23@meta.data[["name"]] <- orig.ident # change the original barcode sequence in the metadata name with the sample name
+colnames(RY23@meta.data)[1] <- "orig.ident" # change the metadata column name "name" into "orig.ident" column name
+RY23@meta.data %>% head # check the results
+RY23_sample = CreateSeuratObject(counts = LayerData(RY23, assay = "RNA", layer = "counts"), project = "RY23", meta.data = c("orig.ident", "nCount_RNA", "nFeature_RNA"))
+
+```
+
+# Create Seurat object of RY26 sample
+```{r}
+RY26<-sceasy::convertFormat("~/scratch4-mjung9/ryuda1/RY27_LSK_scRNA-seq_scTE/LSK_RY26/LSK_RY26.h5ad",from="anndata", to="seurat", outFile='filename.rds')
+nCount_RNA = colSums(x = RY26, slot = "counts") # calculate nCount_RNA
+nFeature_RNA = colSums(x = LayerData(RY26, layer = "counts") > 0) # calculate nFeature_RNA
+RY26@meta.data<-cbind(RY26@meta.data, nCount_RNA, nFeature_RNA) # combine the nCount_RNA and nFeature_RNA into Seurat object metadata
+orig.ident <- "RY26" # make a new metadata column to show the sample name
+RY26@meta.data[["name"]] <- orig.ident # change the original barcode sequence in the metadata name with the sample name
+colnames(RY26@meta.data)[1] <- "orig.ident" # change the metadata column name "name" into "orig.ident" column name
+RY26@meta.data %>% head # check the results
+RY26_sample = CreateSeuratObject(counts = LayerData(RY26, assay = "RNA", layer = "counts"), project = "RY26", meta.data = c("orig.ident", "nCount_RNA", "nFeature_RNA"))
+
+```
+
+# Create Seurat Object for RY33 sample
+```{r}
+RY33<-sceasy::convertFormat("~/scratch4-mjung9/ryuda1/RY27_LSK_scRNA-seq_scTE/LSK_RY33/LSK_RY33.h5ad",from="anndata", to="seurat", outFile='filename.rds')
+nCount_RNA = colSums(x = RY33, slot = "counts") # calculate nCount_RNA
+nFeature_RNA = colSums(x = LayerData(RY33, layer = "counts") > 0) # calculate nFeature_RNA
+RY33@meta.data<-cbind(RY33@meta.data, nCount_RNA, nFeature_RNA) # combine the nCount_RNA and nFeature_RNA into Seurat object metadata
+orig.ident <- "RY33" # make a new metadata column to show the sample name
+RY33@meta.data[["name"]] <- orig.ident # change the original barcode sequence in the metadata name with the sample name
+colnames(RY33@meta.data)[1] <- "orig.ident" # change the metadata column name "name" into "orig.ident" column name
+RY33@meta.data %>% head # check the results
+RY33_sample = CreateSeuratObject(counts = LayerData(RY33, assay = "RNA", layer = "counts"), project = "RY33", meta.data = c("orig.ident", "nCount_RNA", "nFeature_RNA"))
+```
+
+# Create Seurat Object for RY36 sample
+```{r}
+RY36<-sceasy::convertFormat("~/scratch4-mjung9/ryuda1/RY27_LSK_scRNA-seq_scTE/LSK_RY36/LSK_RY36.h5ad",from="anndata", to="seurat", outFile='filename.rds')
+nCount_RNA = colSums(x = RY36, slot = "counts") # calculate nCount_RNA
+nFeature_RNA = colSums(x = LayerData(RY36, layer = "counts") > 0) # calculate nFeature_RNA
+RY36@meta.data<-cbind(RY36@meta.data, nCount_RNA, nFeature_RNA) # combine the nCount_RNA and nFeature_RNA into Seurat object metadata
+orig.ident <- "RY36" # make a new metadata column to show the sample name
+RY36@meta.data[["name"]] <- orig.ident # change the original barcode sequence in the metadata name with the sample name
+colnames(RY36@meta.data)[1] <- "orig.ident" # change the metadata column name "name" into "orig.ident" column name
+RY36@meta.data %>% head # check the results
+RY36_sample = CreateSeuratObject(counts = LayerData(RY36, assay = "RNA", layer = "counts"), project = "RY36", meta.data = c("orig.ident", "nCount_RNA", "nFeature_RNA"))
+
+```
+
+# merge the seurat objects
+```{r}
+# Merge the individual library to generate a merged Seurat object and assign based on conditions
+
+## DO NOT RUN
+merged.seurat <- merge(x = RY22_sample, y = c(RY23_sample, RY26_sample, RY33_sample, RY36_sample),
+                      add.cell.id = c("RY22", "RY23", "RY26", "RY33", "RY36"))
+```
+
+# Save into RDS data object
+```{r}
+saveRDS(merged.seurat, file = "LSK.merged.seurat.object.rds")
+saveRDS(RY22, file = "RY22.seurat.object.rds")
+saveRDS(RY23, file = "RY23.seurat.object.rds")
+saveRDS(RY26, file = "RY26.seurat.object.rds")
+saveRDS(RY33, file = "RY33.seurat.object.rds")
+saveRDS(RY36, file = "RY36.seurat.object.rds")
+```
+
+# Record all the package informations
+```{r}
+sessionInfo()
+```
