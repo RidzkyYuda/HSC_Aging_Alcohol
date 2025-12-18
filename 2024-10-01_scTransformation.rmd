@@ -1,0 +1,265 @@
+---
+title: SCTransformation, Normalization, and Integration of SeuratObject included with
+  CellCycleScore
+output:
+  html_notebook: default
+  pdf_document: default
+editor_options:
+  chunk_output_type: inline
+---
+
+Author: Ridzky Yuda, Ph.D.
+Date: July 28th, 2024
+
+# 1 Install Required Dependencies
+```{r}
+#remotes::install_github("satijalab/seurat", "seurat5", quiet = TRUE)
+#install.packages("sctransform")
+#install.packages("harmony")
+#BiocManager::install("harmony", version = "3.18")
+#BiocManager::install("glmGamPoi")
+#BiocManager::install("clustermole")
+
+```
+# 2 Activate the libraries
+```{r}
+library(Seurat)
+library(patchwork)
+library(sctransform)
+library(harmony)
+library(ggplot2)
+library(patchwork)
+library(tidyverse)
+library(tidyverse)
+library(RCurl)
+library(cowplot)
+library(dplyr)
+library(glmGamPoi)
+```
+#################################################
+# 3 SCTransform normalization
+
+# 3.1 Load data from step 2
+```{r}
+HSPCfiltered <- readRDS ("~/scratch4-mjung9/ryuda1/RY27_LSK_scRNA-seq_scTE/2024-10-01_scTE_filtering_and_qc/HSPC_filtered_seurat_object.rds")
+```
+
+```{r}
+options(future.globals.maxSize = 10000 * 1024^10)
+# r-studio-server.sh -n 4 -c 30 -t 1:0:0 -p bigmem -a mjung9 
+```
+
+# 3.2 Perform SC Transformation
+```{r}
+#remotes::install_version("matrixStats", version="1.1.0") 
+# Run SC Transform for HSPC filtered object without regressing out mitochondrial reads
+HSPC_SCtransformed <- SCTransform(HSPCfiltered, vst.flavor = "v2")
+```
+# 3.3 Save SCTransformed Data
+```{r}
+saveRDS(HSPC_SCtransformed, "HSPC_SCT_seurat_data.rds")
+```
+
+# 4. Prepare ingredients for Cell Cycle Scoring
+```{r}
+# load required packages for annotation
+library(RCurl)
+library(AnnotationHub)
+library(ensembldb)
+```
+# 4.1 Download cell cycle genes from mouse tinyatlas database
+```{r}
+# Download cell cycle genes for organism at https://github.com/hbc/tinyatlas/tree/master/cell_cycle. Read it in with:
+
+cc_file <- getURL("https://raw.githubusercontent.com/hbc/tinyatlas/master/cell_cycle/Mus_musculus.csv") 
+cell_cycle_genes <- read.csv(text = cc_file)
+
+```
+
+# 4.2 Connect the annotation of the cell cycle gene database
+```{r}
+#devtools::install_version("dbplyr", version = "2.3.4")
+
+
+# Connect to AnnotationHub
+ah <- AnnotationHub()
+
+# Access the Ensembl database for organism
+ahDb <- query(ah, 
+              pattern = c("Mus musculus", "EnsDb"), 
+              ignore.case = TRUE)
+
+# Acquire the latest annotation files
+id <- ahDb %>%
+        mcols() %>%
+        rownames() %>%
+        tail(n = 1)
+
+# Download the appropriate Ensembldb database
+edb <- ah[[id]]
+
+# Extract gene-level information from database
+annotations <- genes(edb, 
+                     return.type = "data.frame")
+
+# Select annotations of interest
+annotations <- annotations %>%
+        dplyr::select(gene_id, gene_name, seq_name, gene_biotype, description)
+```
+# 4.3 Extract cell cycle genes for S and G2M phase
+```{r}
+# Get gene names for Ensembl IDs for each gene
+cell_cycle_markers <- dplyr::left_join(cell_cycle_genes, annotations, by = c("geneID" = "gene_id"))
+
+# Acquire the S phase genes
+s_genes <- cell_cycle_markers %>%
+        dplyr::filter(phase == "S") %>%
+        pull("gene_name")
+        
+# Acquire the G2M phase genes        
+g2m_genes <- cell_cycle_markers %>%
+        dplyr::filter(phase == "G2/M") %>%
+        pull("gene_name")
+```
+
+# 4.4 Save cell cycle gene lists
+```{r}
+saveRDS(s_genes, "Sphase.genes.rds")
+saveRDS(g2m_genes, "G2Mphase.genes.rds")
+```
+
+# 5 Perform cell cycle score calculation on HSPC_SCtransformed seurat object
+```{r}
+# perform Cell Cycle Score Calculation
+HSPC_SCtransformed_CC.Score <- CellCycleScoring(HSPC_SCtransformed, s.features = s_genes, g2m.features = g2m_genes, 
+                                                   set.ident = TRUE)
+# view cell cycle scores and phase assignments
+head(HSPC_SCtransformed_CC.Score)
+saveRDS(HSPC_SCtransformed_CC.Score, "HSPC_SCtransformed_CC.Score.rds")
+```
+# 5.1 Visualize cell cycle genes and PCA 
+```{r}
+# Visualize the distribution of cell cycle markers across
+RidgePlot(HSPC_SCtransformed_CC.Score, features = c("Pcna", "Top2a", "Mcm6", "Mki67"), ncol = 2)
+```
+
+# 5.2 PCA based on cell cycle
+```{r}
+# Running a PCA on cell cycle genes reveals, unsurprisingly, that cells separate entirely by
+# phase
+HSPC_SCtransformed_CC.Score.withPCA <- RunPCA(HSPC_SCtransformed_CC.Score, features = c(s_genes, g2m_genes))
+DimPlot(HSPC_SCtransformed_CC.Score.withPCA)
+```
+# 5.3 Check before integration
+# Run PCA in the HSPC_SCtransformed_CC.Score
+```{r}
+# run PCA 
+HSPCwithCC.Score<- RunPCA(HSPC_SCtransformed_CC.Score)
+
+```
+
+# Determine how many PCs required to create dimensionality reduction
+```{r}
+ElbowPlot(HSPCwithCC.Score)
+```
+# Show heatmaps of 10 PCA
+```{r}
+#visualize from 500 cells
+DimHeatmap(HSPCwithCC.Score, reduction = "pca", cells = 500, balanced = T, dims = 1:10)
+```
+# Cluster generation using Louvain algorithm
+Based on that assesment, I will use 10 PCs
+Run dimensionality reduction based on the PC using Louvain algorithm
+```{r}
+HSPCwithCC.Score <- FindNeighbors(HSPCwithCC.Score, dims = 1:10, reduction = "pca")
+HSPCwithCC.Score <- FindClusters(HSPCwithCC.Score, resolution = c(0.7), cluster.name = "unintegrated_clusters")
+```
+# Run UMAP without integration to know the merging between samples
+Based on
+```{r}
+#UMAP based on sample and clusters
+HSPCwithCC.Score <- RunUMAP(HSPCwithCC.Score, dims = 1:10)
+DimPlot(HSPCwithCC.Score, reduction = "umap", group.by = c("sample", "seurat_clusters"))
+```
+# Split UMAP based on samples
+```{r}
+DimPlot(HSPCwithCC.Score, reduction = "umap", split.by = c("sample"))
+```
+# UMAP based on conditions
+```{r}
+DimPlot(HSPCwithCC.Score, reduction = "umap", split.by = c("group"))
+```
+# 5.4 Perform Integration
+```{r}
+#HSPCwithCC.Score[["RNA"]] <- split(HSPCwithCC.Score[["RNA"]], f = HSPCwithCC.Score$sample)
+
+#split_seurat <- SplitObject(HSPCwithCC.Score, split.by = "group")
+#integ_features <- SelectIntegrationFeatures(object.list = split_seurat, 
+ #                                           nfeatures = 3000) 
+#split_seurat <- PrepSCTIntegration(object.list = split_seurat, 
+ #                                  anchor.features = integ_features)
+#integ_anchors <- FindIntegrationAnchors(object.list = split_seurat, 
+  #                                      normalization.method = "SCT", 
+   #                                     anchor.features = integ_features)
+#IntegratedHSPCwithCC.Score <- IntegrateData(anchorset = integ_anchors, 
+#                                   normalization.method = "SCT")
+IntegratedHSPCwithCC.Score <- IntegrateLayers(object = HSPCwithCC.Score, method = CCAIntegration, normalization.method = "SCT", verbose =F)
+```
+
+# store the Integrated HSPC with CC score object
+```{r}
+saveRDS(IntegratedHSPCwithCC.Score, "IntegratedHSPCwithCC.Score.rds")
+```
+
+
+# Calculate PCA after integration and generate a new seurat object to avoid overriding previous file
+```{r}
+IntegratedHSPCwithCC.Score.PCA <- RunPCA (IntegratedHSPCwithCC.Score)
+```
+
+# Run ElbowPlot
+```{r}
+ElbowPlot(IntegratedHSPCwithCC.Score.PCA)
+```
+
+# Calculate clusters using 20 PC dimensions from the integrated seurat object above
+```{r}
+IntegratedHSPCwithCC.Score.PCA <- FindNeighbors(IntegratedHSPCwithCC.Score.PCA, dims = 1:20, reduction = "pca")
+
+```
+
+# use resolution 0.4 
+```{r}
+IntegratedHSPCwithCC.Score.PCA <- FindClusters(IntegratedHSPCwithCC.Score.PCA, resolution = 0.4)
+```
+
+# Visualize UMAP
+
+```{r}
+IntegratedHSPCwithCC.Score.PCA <- RunUMAP(IntegratedHSPCwithCC.Score.PCA, dims = 1:20, reduction = "integrated.dr")
+
+
+# Visualize based on samples and seurat clusters
+DimPlot(IntegratedHSPCwithCC.Score.PCA, reduction = "umap", label = T, group.by = c("sample", "seurat_clusters"))
+```
+
+```{r}
+# Visualize based on samples in a splited manner
+DimPlot(IntegratedHSPCwithCC.Score.PCA, reduction = "umap", label = T, split.by = c("sample"))
+```
+
+Also, visualize UMAP based on their cell cycle phase to know the distribution of the clusters based on their cell cycle activities 
+```{r}
+DimPlot(IntegratedHSPCwithCC.Score.PCA, reduction = "umap", label = T, split.by = c("Phase"))
+```
+
+# store integrated with UMAP score
+```{r}
+saveRDS(IntegratedHSPCwithCC.Score.PCA, "IntegratedHSPCwithCC.Score.PCA.UMAP.rds")
+```
+
+
+```{r}
+sessionInfo()
+```
+
