@@ -1,7 +1,6 @@
 ---
 title: "Loading data and generating seurat objects from scTE analysis"
 output: html_notebook
-output: html_notebook
 author: Ridzky Yuda, Ph.D.
 Date: October 1st, 2024
 ---
