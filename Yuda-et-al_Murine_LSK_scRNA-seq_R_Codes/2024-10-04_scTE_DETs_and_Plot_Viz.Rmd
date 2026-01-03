@@ -1,0 +1,848 @@
+---
+title: "Visualisierung und Clustering"
+output:
+  html_notebook: default
+  pdf_document: default
+editor_options:
+  chunk_output_type: inline
+---
+Author: Ridzky Yuda, Ph.D.
+Datum: 15. August 2024
+# 1 Installation von die gebrauchte Pakete
+```{r}
+#remotes::install_github("satijalab/seurat", "seurat5", quiet = TRUE)
+#install.packages("sctransform")
+#install.packages("harmony")
+#BiocManager::install("harmony", version = "3.16")
+#BiocManager::install("glmGamPoi")
+#BiocManager::install("clustermole")
+#install.packages("pathfindR")
+#BiocManager::install("dittoSeq")
+#BiocManager::install("formatR")
+#BiocManager::install("ComplexHeatmap")
+#BiocManager::install("fgsea")
+#install.packages("msigdbr")
+```
+
+# 2 Paket Aktivierung
+```{r}
+library(RColorBrewer)
+library(Seurat)
+library(patchwork)
+library(sctransform)
+library(harmony)
+library(ggplot2)
+library(patchwork)
+library(tidyverse)
+library(tidyverse)
+library(RCurl)
+library(cowplot)
+library(dplyr)
+library(glmGamPoi)
+library(ggsci)
+library(RCurl)
+library(AnnotationHub)
+library(ensembldb)
+library(dittoSeq)
+library(formatR)
+library(ComplexHeatmap)
+library(circlize)
+library(fgsea)
+library(msigdbr)
+library(dplyr)
+library(ggplot2)
+library(SingleR)
+library(celldex)
+```
+# 3 Laden die neueste geklustert Seuratobjek mit neuester Annotation
+```{r}
+CombinedCluster <- readRDS("~/scratch4-mjung9/ryuda1/RY27_LSK_scRNA-seq_scTE/2024-10-02_Cluster_Annotations/combined2Cluster.Seurat.rds")
+
+test.data <-readRDS("~/scratch4-mjung9/ryuda1/RY27_LSK_scRNA-seq_scTE/2024-10-02_Cluster_Annotations/combined2Cluster.Seurat.rds")
+```
+
+#4 Fügen die CellType nach Metadaten von Seurat Objekt hinzu
+```{r}
+labels <-c("LT-HSC", 
+           "MPP4/LMPP", 
+           "ST-HSC", 
+           "CLP", 
+           "MPP4/LMPP", 
+           "ST-HSC", 
+           "CLP", 
+           "Mito-high prog", 
+           "ST-HSC", 
+           "CLP", 
+           "Mito-high prog", 
+           "MPP3", 
+           "CyclingProg",
+           "MPP3",
+           "Baso-Mast-Prog",
+           "Baso-Mast-Prog",
+           "ST-HSC",
+           "Mito-high prog",
+           "Mito-high prog",
+           "pDC/DC-prog",
+           "T cell prog",
+           "PKR+ prog",
+           "Myeloid prog",
+           "Baso-Mast-Prog",
+           "T cell prog",
+           "Ery-prog",
+           "Mito-high prog",
+           "B cell prog",
+           "B cell prog",
+           "Myeloid prog",
+           "Mito-high prog",
+           "Mito-high prog")
+
+# create a new column in metadata
+CombinedCluster$CellType <- CombinedCluster$seurat_clusters
+
+# replace cluster number by cell type
+levels(CombinedCluster$CellType) <-labels
+```
+
+#5 Visualize UMAP from the Seurat object
+```{r}
+#CombinedCluster <- factor(test.data$sample, levels = c("Young control", "Young alcohol", "Old control", "Old alcohol1", "Old alcohol2"))
+
+colors <- c("#e3d132","#99bd4b","#5fc26f","#1F78B4","#A6CEE3", "#E31A1C","#E3751C","#600078", "#33A02C", "#FDBF6F", "#526317", "#ae5e93", "#784620", "#edbbe3", "#eb5252")
+
+All<-print(DimPlot(object = CombinedCluster, 
+        reduction = "umap", 
+        label = T,
+        pt.size = 1,
+        repel = T,
+        label.size = 4,
+        cols = colors)) + ggtitle("Global") +
+  theme(plot.title = element_text(hjust=0.5))
+ggsave("2024-10-04_All_samples_UMAP.pdf", All, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+```
+
+```{r}
+# Total number of cells in the UMAP
+length(rownames(CombinedCluster@meta.data))
+```
+
+```{r}
+#  save as a new Seurat object
+saveRDS(CombinedCluster, "SeuratAllCluster.rds")
+```
+
+#6 Machen die geteilte UMAP  
+Zur Vergleichung über die Gruppe, ich plotte individuelle UMAP auf jeder Grup
+
+#6a. Young Control UMAP
+```{r}
+CombinedCluster_YC <- subset(CombinedCluster, group %in% "Young control")
+
+YC_UMAP<-print(DimPlot(object = CombinedCluster_YC, 
+        reduction = "umap", 
+        label = F,
+        pt.size = 1,
+        repel = T,
+        label.size = 4,
+        cols = colors)) +
+  ggtitle("Young Control")+
+  theme(plot.title = element_text(hjust=0.5))
+ggsave("2024-10-04_YC_UMAP.pdf", YC_UMAP, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+```
+
+```{r}
+# number of cells in the YC group
+length(rownames(CombinedCluster_YC@meta.data))
+```
+
+```{r}
+# save YC as a new Seurat object
+saveRDS(CombinedCluster_YC, "Seurat_YoungControl.rds")
+```
+
+#6b. Young Alcohol UMAP
+```{r}
+CombinedCluster_YA <- subset(CombinedCluster, group %in% "Young alcohol")
+
+YA_UMAP<-print(DimPlot(object = CombinedCluster_YA, 
+        reduction = "umap", 
+        label = F,
+        pt.size = 1,
+        repel = T,
+        label.size = 4,
+        cols = colors))+
+  ggtitle("Young Alcohol")+
+  theme(plot.title = element_text(hjust=0.5))
+ggsave("2024-10-04_YA_UMAP.pdf", YA_UMAP, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+```
+
+```{r}
+# number of cells in YA group
+length(rownames(CombinedCluster_YA@meta.data))
+```
+
+```{r}
+# save YA as a new Seurat object
+saveRDS(CombinedCluster_YA, "Seurat_YoungAlcohol.rds")
+```
+
+
+#6c. Old Control UMAP
+```{r}
+CombinedCluster_OC <- subset(CombinedCluster, group %in% "Old control")
+
+OC_UMAP<-print(DimPlot(object = CombinedCluster_OC, 
+        reduction = "umap", 
+        label = F,
+        pt.size = 1,
+        repel = T,
+        label.size = 4,
+        cols = colors))+
+  ggtitle("Old Control")+
+  theme(plot.title = element_text(hjust=0.5))
+ggsave("2024-10-04_OC_UMAP.pdf", OC_UMAP, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+```
+
+```{r}
+# number of cells in OC group
+length(rownames(CombinedCluster_OC@meta.data))
+```
+
+```{r}
+# save OC as a new Seurat Object
+saveRDS(CombinedCluster_OC, "Seurat_OldControl.rds")
+```
+
+
+#6d. Old Alcohol UMAP
+```{r}
+CombinedCluster_OA <- subset(CombinedCluster, group %in% "Old alcohol")
+
+OA_UMAP<-print(DimPlot(object = CombinedCluster_OA, 
+        reduction = "umap", 
+        label = F,
+        pt.size = 1,
+        repel = T,
+        label.size = 4,
+        cols = colors))+
+  ggtitle("Old Alcohol")+
+  theme(plot.title = element_text(hjust=0.5))
+ggsave("2024-10-04_OA_UMAP.pdf", OA_UMAP, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+```
+
+```{r}
+# number of cells in the OA group
+length(rownames(CombinedCluster_OA@meta.data))
+```
+
+```{r}
+# save OA as a new Seurat object
+saveRDS(CombinedCluster_OA, "Seurat_OldAlcohol.rds")
+```
+
+
+#7 Verteilung des Kluster
+```{r}
+# population frequency
+pt <- table(Idents(CombinedCluster),CombinedCluster$group)
+pt <- as.data.frame(pt)
+
+orders <- c("Young control", "Young alcohol", "Old control", "Old alcohol")
+pt$Var2 <- factor(pt$Var2,levels = c("Young control", "Young alcohol", "Old control", "Old alcohol"))
+
+type<-ggplot(pt, aes(x = Var2, y = Freq, fill = Var1))+
+  theme_bw(base_size = 15) +
+  geom_col(position = "fill", width = 0.6) +
+  xlab("Group") +
+  ylab("Cell type proportion") + 
+  scale_fill_manual(values = colors) + 
+  theme(legend.title = element_blank()) +
+  theme(axis.text.x=element_text(size=rel(1), angle=0))
+type
+ggsave("2024-10-04_cell_type_proportion.pdf", type, device=cairo_pdf,width = 5, height = 5, units = c("in"))
+
+```
+#8 Cell cycle proportion of LSK cells
+```{r}
+# population frequency LSK
+cycle <- table(Idents(CombinedCluster),CombinedCluster$Phase, CombinedCluster$group)
+cycle <- as.data.frame(cycle)
+
+orders <- c("Young control", "Young alcohol", "Old control", "Old alcohol")
+cycle$Var3 <- factor(cycle$Var3,levels = c("Young control", "Young alcohol", "Old control", "Old alcohol"))
+
+allphase<-ggplot(cycle, aes(x = Var3, y = Freq, fill = Var2))+
+  theme_bw(base_size = 15) +
+  geom_col(position = "fill", width = 0.6) +
+  xlab("Group") + 
+  ylab("Proportion (%)") + 
+  theme(legend.title = element_blank()) +
+  theme(axis.text.x=element_text(size=rel(1), angle=0)) +
+  ggtitle("LSK cell cycle")
+allphase
+ggsave("2024-10-04_cell_cycle_all_clusters.pdf", allphase, device=cairo_pdf,width = 10, height = 10, units = c("in"))
+
+# population frequency LT-HSC
+cycleLTHSC <- subset(cycle, cycle$Var1=="LT-HSC")
+
+orders <- c("Young control", "Young alcohol", "Old control", "Old alcohol")
+cycleLTHSC$Var3 <- factor(cycleLTHSC$Var3,levels = c("Young control", "Young alcohol", "Old control", "Old alcohol"))
+
+lthscphase<-ggplot(cycleLTHSC, aes(x = Var3, y = Freq, fill = Var2))+
+  theme_bw(base_size = 15) +
+  geom_col(position = "fill", width = 0.6) +
+  xlab("Group") + 
+  ylab("Proportion (%)") + 
+  theme(legend.title = element_blank()) +
+  theme(axis.text.x=element_text(size=rel(1), angle=0)) +
+  ggtitle("LT-HSC cell cycle")
+lthscphase
+ggsave("2024-10-04_cell_cycle_lt-hsc.pdf", lthscphase, device=cairo_pdf,width = 5, height = 5, units = c("in"))
+
+# population frequency ST-HSC
+cycleSTHSC <- subset(cycle, cycle$Var1=="ST-HSC")
+
+orders <- c("Young control", "Young alcohol", "Old control", "Old alcohol")
+cycleSTHSC$Var3 <- factor(cycleSTHSC$Var3,levels = c("Young control", "Young alcohol", "Old control", "Old alcohol"))
+
+sthsc<-ggplot(cycleSTHSC, aes(x = Var3, y = Freq, fill = Var2))+
+  theme_bw(base_size = 15) +
+  geom_col(position = "fill", width = 0.6) +
+  xlab("Group") + 
+  ylab("Proportion (%)") + 
+  theme(legend.title = element_blank()) +
+  theme(axis.text.x=element_text(size=rel(1), angle=0))+
+  ggtitle("ST-HSC cell cycle")
+sthsc
+ggsave("2024-10-04_cell_cycle_st-hsc.pdf", sthsc, device=cairo_pdf,width = 5, height = 5, units = c("in"))
+
+# population frequency MPP3
+cycleMPP3 <- subset(cycle, cycle$Var1=="MPP3")
+
+orders <- c("Young control", "Young alcohol", "Old control", "Old alcohol")
+cycleMPP3$Var3 <- factor(cycleMPP3$Var3,levels = c("Young control", "Young alcohol", "Old control", "Old alcohol"))
+
+mpp3<-ggplot(cycleMPP3, aes(x = Var3, y = Freq, fill = Var2))+
+  theme_bw(base_size = 15) +
+  geom_col(position = "fill", width = 0.6) +
+  xlab("Group") + 
+  ylab("Proportion (%)") + 
+  theme(legend.title = element_blank()) +
+  theme(axis.text.x=element_text(size=rel(1), angle=0)) +
+  ggtitle("MPP3 cell cycle")
+mpp3
+ggsave("2024-10-04_cell_cycle_mpp3.pdf", mpp3, device=cairo_pdf,width = 5, height = 5, units = c("in"))
+
+# population frequency MPP4
+cycleMPP4 <- subset(cycle, cycle$Var1=="MPP4")
+
+orders <- c("Young control", "Young alcohol", "Old control", "Old alcohol")
+cycleMPP4$Var3 <- factor(cycleMPP4$Var3,levels = c("Young control", "Young alcohol", "Old control", "Old alcohol"))
+
+mpp4<-ggplot(cycleMPP4, aes(x = Var3, y = Freq, fill = Var2))+
+  theme_bw(base_size = 15) +
+  geom_col(position = "fill", width = 0.6) +
+  xlab("Group") + 
+  ylab("Proportion (%)") + 
+  theme(legend.title = element_blank()) +
+  theme(axis.text.x=element_text(size=rel(1), angle=0)) +
+  ggtitle("MPP4 cell cycle")
+mpp4
+ggsave("2024-10-04_cell_cycle_mpp3.pdf", mpp4, device=cairo_pdf,width = 5, height = 5, units = c("in"))
+
+# population frequency Mito
+cycleMito <- subset(cycle, cycle$Var1=="Mito high prog")
+
+orders <- c("Young control", "Young alcohol", "Old control", "Old alcohol")
+cycleMito$Var3 <- factor(cycleMito$Var3,levels = c("Young control", "Young alcohol", "Old control", "Old alcohol"))
+
+mito<-ggplot(cycleMito, aes(x = Var3, y = Freq, fill = Var2))+
+  theme_bw(base_size = 15) +
+  geom_col(position = "fill", width = 0.6) +
+  xlab("Group") + 
+  ylab("Proportion (%)") + 
+  theme(legend.title = element_blank()) +
+  theme(axis.text.x=element_text(size=rel(1), angle=0)) +
+  ggtitle("Mito high progenitor cell cycle")
+mito
+ggsave("2024-10-04_cell_cycle_mito.pdf", mito, device=cairo_pdf,width = 5, height = 5, units = c("in"))
+```
+
+#9 Differentielle Expressionanalyse auf jeder Clusters
+```{r}
+# Finden Sie Markers von jeden Kluster und bericht nur die Positive markers
+markersPreCompute <- PrepSCTFindMarkers(CombinedCluster)
+all_markers <- FindAllMarkers(markersPreCompute,
+                              min.pct = 0.25,
+                              only.pos = T,
+                              min.diff.pct = 0.25)
+```
+
+```{r}
+#write.xlsx(all_markers, "DEG_all_cluster_markers.xlsx", col.names =TRUE, row.names =TRUE)
+WriteXLS::WriteXLS(all_markers, "DEG_all_cluster_markers.xlsx", col.names =TRUE, row.names =TRUE)
+```
+
+#10 Check if Unknown cluster express mitochondrial genes 
+```{r}
+# Feature plot of based mitochondrial genes
+DefaultAssay(CombinedCluster) <- "SCT"
+Unknown<-FeaturePlot(CombinedCluster,features = c("percent.mt"), max.cutoff = 10, min.cutoff = -2, reduction = "umap", pt.size = 0.5) +
+scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+Unknown
+ggsave("2024-10-04_mitochondria_high_cluster.pdf", Unknown, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+```
+
+#11 Visualize LT-HSC genes
+```{r}
+# Feature plot Procr
+DefaultAssay(CombinedCluster) <- "SCT"
+Procr<-FeaturePlot(CombinedCluster,features = c("Procr"), max.cutoff = 2, min.cutoff = -2, reduction = "umap", pt.size = 0.5) +
+scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+Procr
+
+# Feature plot of Pdzk1ip1
+DefaultAssay(CombinedCluster) <- "SCT"
+Pdzk1ip1<-FeaturePlot(CombinedCluster,features = c("Pdzk1ip1"), max.cutoff = 2, min.cutoff = -2, reduction = "umap", pt.size = 0.5) +
+scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+Pdzk1ip1
+
+# Feature plot of Esam
+DefaultAssay(CombinedCluster) <- "SCT"
+Esam<-FeaturePlot(CombinedCluster,features = c("Esam"), max.cutoff = 2, min.cutoff = -2, reduction = "umap", pt.size = 0.5) +
+scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+Esam
+
+# Feature plot of Mecom
+DefaultAssay(CombinedCluster) <- "SCT"
+Mecom<-FeaturePlot(CombinedCluster,features = c("Mecom"), max.cutoff = 2, min.cutoff = -2, reduction = "umap", pt.size = 0.5) + scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+Mecom
+
+# Feature plot of Cd48
+DefaultAssay(CombinedCluster) <- "SCT"
+Cd48<-FeaturePlot(CombinedCluster,features = c("Cd48"), max.cutoff = 2, min.cutoff = -2, reduction = "umap", pt.size = 0.5) + scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+Cd48
+
+# Feature plot of Trpc6
+DefaultAssay(CombinedCluster) <- "SCT"
+Trpc6<-FeaturePlot(CombinedCluster,features = c("Trpc6"), max.cutoff = 3, min.cutoff = -2, reduction = "umap", pt.size = 0.5) + scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+Trpc6
+
+# Feature plot of Trpc6
+DefaultAssay(CombinedCluster) <- "SCT"
+Flt3<-FeaturePlot(CombinedCluster,features = c("Flt3"), max.cutoff = 3, min.cutoff = -2, reduction = "umap", pt.size = 0.5) + scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+Flt3
+ggsave("2024-10-04_LT-HSC_cluster_Flt3.pdf",Flt3, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+
+ggsave("2024-10-04_LT-HSC_cluster_Procr.pdf",Procr, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+ggsave("2024-10-04_LT-HSC_cluster_Pdzk1ip1.pdf",Pdzk1ip1, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+ggsave("2024-10-04_LT-HSC_cluster_Esam.pdf",Esam, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+ggsave("2024-10-04_LT-HSC_cluster_Mecom.pdf",Mecom, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+ggsave("2024-10-04_LT-HSC_cluster_Cd48.pdf",Cd48, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+ggsave("2024-10-04_LT-HSC_cluster_Trpc6.pdf",Trpc6, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+```
+
+#12 Visualizieren des TE expression auf der Cluster
+```{r}
+DefaultAssay(CombinedCluster) <- "RNA"
+TE_markers<-DotPlot(CombinedCluster, cols = "RdYlBu", assay = "RNA", features = c('gene-id "X12-DNA"; transcript-id "DNA/TcMar-Tigger"', 'gene-id "MLT2B2"; transcript-id "LTR/ERVL"', 'gene-id "MER34B"; transcript-id "LTR/ERV1"', 'gene-id "MLTR25C"; transcript-id "LTR/ERVK"', 'gene-id "RLTR30D-RN"; transcript-id "LTR/ERV1"', 'gene-id "L1ME2z"; transcript-id "LINE/L1"', '"RLTR14-int"; transcript-id "LTR/ERV1"', '	
+gene-id "RLTR30D-RN"; transcript-id "LTR/ERV1"', 'gene-id "RMER20B"; transcript-id "LTR/ERVK"', 'gene-id "ETnERV2-int"; transcript-id "LTR/ERVK"', '"SRV-MM-int"; transcript-id "LTR/ERVK"', 'gene-id "RLTR6C-Mm"; transcript-id "LTR/ERV1"', 'gene-id "RLTR6-Mm"; transcript-id "LTR/ERV1"'), group.by ="CellType")+
+  theme(axis.text.x=element_text(size=rel(1), angle=90))+
+  ggtitle("TE markers expression in each cluster")+
+  theme(plot.title = element_text(hjust=0.5))
+TE_markers
+
+# Feature plot of selected TE for LT-HSC & ST-HSC
+DefaultAssay(CombinedCluster) <- "SCT"
+HSC<-FeaturePlot(CombinedCluster,features = c('gene-id "X12-DNA"; transcript-id "DNA/TcMar-Tigger"'), max.cutoff = 2, min.cutoff = -2, reduction = "umap", pt.size = 0.5) +
+scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+HSC
+
+# Feature plot of selected TE for MPP4
+MPP4<-FeaturePlot(CombinedCluster,features = c('gene-id "MER34B"; transcript-id "LTR/ERV1"'), max.cutoff = 2, min.cutoff = -2, reduction = "umap", pt.size = 0.5) +
+scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+MPP4
+
+# Feature plot of selected TE for MPP3
+MPP3<-FeaturePlot(CombinedCluster,features = c('gene-id "RMER20B"; transcript-id "LTR/ERVK"'), max.cutoff = 2, min.cutoff = -2, reduction = "umap", pt.size = 0.5) +
+scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+MPP3
+
+# Feature plot of selected CLP and B cell Progenitor
+CLP<-FeaturePlot(CombinedCluster,features = c('gene-id "MLTR25C"; transcript-id "LTR/ERVK"'), max.cutoff = 2, min.cutoff = -2, reduction = "umap", pt.size = 0.5) +
+scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+CLP
+
+# Feature plot of selected Myeloid Progenitor
+MYELO<-FeaturePlot(CombinedCluster,features = c('gene-id "ETnERV2-int"; transcript-id "LTR/ERVK"'), max.cutoff = 2, min.cutoff = -2, reduction = "umap", pt.size = 0.5) +
+scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+MYELO
+
+ggsave("2024-10-04_TE_markers_ALL_Clusters.pdf", TE_markers, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+ggsave("2024-10-04_TE_markers_HSC.pdf", HSC, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+ggsave("2024-10-04_TE_markers_MPP4.pdf", MPP4, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+ggsave("2024-10-04_TE_markers_MPP3.pdf", MPP3, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+ggsave("2024-10-04_TE_markers_CLP.pdf", CLP, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+ggsave("2024-10-04_TE_markers_MYELOD.pdf", MYELO, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+```
+
+
+#13 UMAP visualizierung auf L1MdN-I TE
+```{r}
+DefaultAssay(CombinedCluster_YC) <- "SCT"
+YC<-FeaturePlot(CombinedCluster_YC, features = c('gene-id "L1MdN-I"; transcript-id "LINE/L1"'), max.cutoff = 2, min.cutoff = -2, reduction = "umap", pt.size = 0.5) +
+scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+YC
+
+YA<-FeaturePlot(CombinedCluster_YA, features = c('gene-id "L1MdN-I"; transcript-id "LINE/L1"'), max.cutoff = 2, min.cutoff = -2, reduction = "umap", pt.size = 0.5, keep.scale = "feature") +
+scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+YA
+
+OC<-FeaturePlot(CombinedCluster_OC, features = c('gene-id "L1MdN-I"; transcript-id "LINE/L1"'), max.cutoff = 2, min.cutoff = -2, reduction = "umap", pt.size = 0.5, keep.scale = "feature") +
+scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+OC
+
+OA<-FeaturePlot(CombinedCluster_OA, features = c('gene-id "L1MdN-I"; transcript-id "LINE/L1"'), max.cutoff = 2, min.cutoff = -2, reduction = "umap", pt.size = 0.5, keep.scale = "feature") +
+scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+OA
+
+ggsave("2024-10-04_LINE1_LT-HSC_YC.pdf", YC, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+ggsave("2024-10-04_LINE1_LT-HSC_YA.pdf", YA, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+ggsave("2024-10-04_LINE1_LT-HSC_OC.pdf", OC, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+ggsave("2024-10-04_LINE1_LT-HSC_OA.pdf", OA, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+```
+#14 UMAP visualizierung auf MLT2B2 TE
+```{r}
+DefaultAssay(CombinedCluster_YC) <- "SCT"
+YC<-FeaturePlot(CombinedCluster_YC, features = c('gene-id "MLT2B2"; transcript-id "LTR/ERVL"'), max.cutoff = 2, min.cutoff = -2, reduction = "umap", pt.size = 0.5) +
+scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+YC
+
+YA<-FeaturePlot(CombinedCluster_YA, features = c('gene-id "MLT2B2"; transcript-id "LTR/ERVL"'), max.cutoff = 2, min.cutoff = -2, reduction = "umap", pt.size = 0.5, keep.scale = "feature") +
+scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+YA
+
+OC<-FeaturePlot(CombinedCluster_OC, features = c('gene-id "MLT2B2"; transcript-id "LTR/ERVL"'), max.cutoff = 2, min.cutoff = -2, reduction = "umap", pt.size = 0.5, keep.scale = "feature") +
+scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+OC
+
+OA<-FeaturePlot(CombinedCluster_OA, features = c('gene-id "MLT2B2"; transcript-id "LTR/ERVL"'), max.cutoff = 2, min.cutoff = -2, reduction = "umap", pt.size = 0.5, keep.scale = "feature") +
+scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+OA
+
+ggsave("2024-10-04_MLT2B2-LTR_LT-HSC_YC.pdf", YC, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+ggsave("2024-10-04_MLT2B2-LTR_LT-HSC_YA.pdf", YA, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+ggsave("2024-10-04_MLT2B2-LTR_LT-HSC_OC.pdf", OC, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+ggsave("2024-10-04_MLT2B2-LTR_LT-HSC_OA.pdf", OA, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+```
+
+#15 TE dotplots LT-HSC
+```{r}
+# Erstmal, Nimmt nur die LT-HSC subset von CombinedCluster Seurat Object
+
+Long_term_HSC_subset <- subset(CombinedCluster, CellType %in% c("LT-HSC"))
+
+# Danach plotte ich die Älterungs-und Entzundung Gene von allen Zellen nach Svendsen et al.
+DefaultAssay(Long_term_HSC_subset) <- "SCT"
+
+DotPlotLTHSC_TE<-print(DotPlot(Long_term_HSC_subset, cols = "RdYlBu", assay = "RNA", features = c('gene-id "L1MA5A"; transcript-id "LINE/L1"','gene-id "X24-LINE"; transcript-id "LINE/L2"','gene-id "L1MA10"; transcript-id "LINE/L1"','gene-id "AmnSINE1"; transcript-id "SINE/5S-Deu-L2"', 'gene-id "IAPLTR2a"; transcript-id "LTR/ERVK"',  'gene-id "LTR88c"; transcript-id "LTR/Gypsy"',  'gene-id "MMTV-int"; transcript-id "LTR/ERVK"', 'gene-id "LTR75-1"; transcript-id "LTR/ERV1"', 'gene-id "hAT-1-Mam"; transcript-id "DNA/hAT-Tag1"','gene-id "UCON35"; transcript-id "DNA"'), group.by = "group"))+
+  theme(axis.text.x=element_text(size=rel(0.8), angle=90))+
+  ggtitle("Selected genes in LT-HSC")+
+  theme(plot.title = element_text(hjust=0.5))
+ggsave("2024-10-04_Dotplot_LT-HSC_TEs.pdf", DotPlotLTHSC_TE, device=cairo_pdf,width = 15, height = 7, units = c("in"))
+```
+
+#14 UMAP visualizierung auf LTR75-1 TE
+```{r}
+DefaultAssay(CombinedCluster_YC) <- "SCT"
+YC<-FeaturePlot(CombinedCluster_YC, features = c('gene-id "AmnSINE1"; transcript-id "SINE/5S-Deu-L2"'), max.cutoff = 1.5, min.cutoff = -2, reduction = "umap", pt.size = 0.5) +
+scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+YC
+
+YA<-FeaturePlot(CombinedCluster_YA, features = c('gene-id "AmnSINE1"; transcript-id "SINE/5S-Deu-L2"'), max.cutoff = 1.5, min.cutoff = -2, reduction = "umap", pt.size = 0.5, keep.scale = "feature") +
+scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+YA
+
+OC<-FeaturePlot(CombinedCluster_OC, features = c('gene-id "AmnSINE1"; transcript-id "SINE/5S-Deu-L2"'), max.cutoff = 1.5, min.cutoff = -2, reduction = "umap", pt.size = 0.5, keep.scale = "feature") +
+scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+OC
+
+OA<-FeaturePlot(CombinedCluster_OA, features = c('gene-id "AmnSINE1"; transcript-id "SINE/5S-Deu-L2"'), max.cutoff = 1.5, min.cutoff = -2, reduction = "umap", pt.size = 0.5, keep.scale = "feature") +
+scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+OA
+
+ggsave("2024-10-04_AmnSINE1_LT-HSC_YC.pdf", YC, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+ggsave("2024-10-04_AmnSINE1_LT-HSC_YA.pdf", YA, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+ggsave("2024-10-04_AmnSINE1_LT-HSC_OC.pdf", OC, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+ggsave("2024-10-04_AmnSINE1_LT-HSC_OA.pdf", OA, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+```
+
+
+```{r}
+# Visualization über den Älterungsgene von allen Zellen nach Svendsen et al für jede Gruppe
+
+#DefaultAssay(CombinedCluster) <- "RNA"
+#DotPlot(CombinedCluster, features = c("Selp", "Egr1", "Fos", "Junb", "Cdkn2a", "Cdkn1a", "Eif2ak2", "H2ax", "Plk1", "Top2a", "Wwtr1", "Mef2c", "Bmpr1a", "Id2"), group.by ="group")+ 
+#  plot_annotation(
+#  title = 'Dot plot genes markers',
+ # theme = theme(plot.title = element_text(size = 14, hjust = 0.5)))
+
+print(DotPlot(CombinedCluster, cols = "RdYlBu", assay = "SCT", features = c("Selp", "Egr1", "Fos", "Junb", "Cdkn2a", "Cdkn1a", "Eif2ak2", "H2ax", "Plk1", "Top2a", "Wwtr1", "Mef2c", "Bmpr1a", "Id2"), group.by = "group"))+
+  theme(axis.text.x=element_text(size=rel(1), angle=90))+
+  ggtitle("Selected genes across conditions")+
+  theme(plot.title = element_text(hjust=0.5))
+
+```
+
+
+#15 Analysierung den Älterungs-und gene in der LT-HSC Cluster
+```{r}
+# Erstmal, Nimmt nur die LT-HSC subset von CombinedCluster Seurat Object
+
+Long_term_HSC_subset <- subset(CombinedCluster, CellType %in% c("LT-HSC"))
+
+# Danach plotte ich die Älterungs-und Entzundung Gene von allen Zellen nach Svendsen et al.
+DefaultAssay(Long_term_HSC_subset) <- "RNA"
+
+DotPlotLTHSC<-print(DotPlot(Long_term_HSC_subset, cols = "RdYlBu", assay = "RNA", features = c("Slamf1", "Egr1", "Aldh1a1", "Lgals1", "Cavin2","Selp", "Cd38", "Itgb3", "Clec1a", "Clca3a1","Ntf3", "Clu", "Osmr", "Maf", "Spi1","Fos", "Junb", "Socs3","Pf4", "Vwf", "Eif2ak2", "Samhd1", "Ifih1", "Ifit1","Ifitm1","Rigi", "Dhx58","Irf3", "Irf7","Cgas", "Sting1", "Nfkb1", "Ddx60", "Trim28", "Isg15", "Irf8","Adar", "S100a9", "Cd74", "H2-Aa", "H2-Ab1", "H2-Eb2", "Ciita", "Hmgb1","Dnmt1", "Dnmt3a", "Dnmt3b", "Ezh1", "Ezh2", "Setdb1", "Sirt1", "Sirt6","Tgfb1", "Ccnd1", "Cdk4", "Ccne1", "Cdk2", "Cdk1", "E2f3","E2f8", "Cenpf", "Mcm5","H2ax", "Birc5", "Gadd45b", "Atf3", "Lmna", "Hmgb2", "Bax", "Apaf1"), group.by = "group"))+
+  theme(axis.text.x=element_text(size=rel(0.8), angle=90))+
+  ggtitle("Selected genes in LT-HSC")+
+  theme(plot.title = element_text(hjust=0.5))
+ggsave("2024-10-04_Dotplot_LT-HSC_aging_markers.pdf", DotPlotLTHSC, device=cairo_pdf,width = 15, height = 7, units = c("in"))
+```
+
+#16 Analysierung den Älterungs-und gene in der ST-HSC Cluster
+```{r}
+# Erstmal, Nimmt nur die ST-HSC subset von CombinedCluster Seurat Object
+
+Short_term_HSC_subset <- subset(CombinedCluster, CellType %in% c("ST-HSC"))
+
+# Danach plotte ich die Älterungs-und Entzundung Gene von allen Zellen nach Svendsen et al.
+#DefaultAssay(Short_term_HSC_subset) <- "RNA"
+
+DotplotSTHSC<-print(DotPlot(Short_term_HSC_subset, cols = "RdYlBu", assay = "RNA", features = c("Slamf1", "Egr1", "Aldh1a1", "Lgals1", "Cavin2","Selp", "Cd38", "Itgb3", "Clec1a", "Clca3a1","Ntf3", "Clu", "Osmr", "Maf", "Spi1","Fos", "Junb", "Socs3","Pf4", "Vwf", "Eif2ak2", "Samhd1", "Ifih1", "Ifit1","Ifitm1","Rigi", "Dhx58","Irf3", "Irf7","Cgas", "Sting1", "Nfkb1", "Ddx60", "Trim28", "Isg15", "Irf8","Adar", "S100a9", "Cd74", "H2-Aa", "H2-Ab1", "H2-Eb2", "Ciita", "Hmgb1","Dnmt1", "Dnmt3a", "Dnmt3b", "Ezh1", "Ezh2", "Setdb1", "Sirt1", "Sirt6","Tgfb1", "Ccnd1", "Cdk4", "Ccne1", "Cdk2", "Cdk1", "E2f3","E2f8", "Cenpf", "Mcm5","H2ax", "Birc5", "Gadd45b", "Atf3", "Lmna", "Hmgb2", "Bax", "Apaf1"), group.by = "group"))+
+  theme(axis.text.x=element_text(size=rel(0.8), angle=90))+
+  ggtitle("Selected genes in ST-HSC")+
+  theme(plot.title = element_text(hjust=0.5))
+ggsave("2024-10-04_Dotplot_ST-HSC_aging_markers.pdf", DotplotSTHSC, device=cairo_pdf,width = 15, height = 7, units = c("in"))
+```
+
+# Analysierung den Älterungs-und gene in der MPP3 Cluster
+```{r}
+# Erstmal, Nimmt nur die MPP3 subset von CombinedCluster Seurat Object
+
+MyMPP3_MyProg_subset <- subset(CombinedCluster, CellType %in% c("MPP3"))
+
+# Danach plotte ich die Älterungs-und Entzundung Gene von allen Zellen nach Svendsen et al.
+#DefaultAssay(MyMPP3_MyProg_subset) <- "RNA"
+
+DotplotMPP3<-print(DotPlot(MyMPP3_MyProg_subset, cols = "RdYlBu", assay = "RNA", features = c("Slamf1", "Egr1", "Aldh1a1", "Lgals1", "Cavin2","Selp", "Cd38", "Itgb3", "Clec1a", "Clca3a1","Ntf3", "Clu", "Osmr", "Maf", "Spi1","Fos", "Junb", "Socs3","Pf4", "Vwf", "Eif2ak2", "Samhd1", "Ifih1", "Ifit1","Ifitm1","Rigi", "Dhx58","Irf3", "Irf7","Cgas", "Sting1", "Nfkb1", "Ddx60", "Trim28", "Isg15", "Irf8","Adar", "S100a9", "Cd74", "H2-Aa", "H2-Ab1", "H2-Eb2", "Ciita", "Hmgb1","Dnmt1", "Dnmt3a", "Dnmt3b", "Ezh1", "Ezh2", "Setdb1", "Sirt1", "Sirt6","Tgfb1", "Ccnd1", "Cdk4", "Ccne1", "Cdk2", "Cdk1", "E2f3","E2f8", "Cenpf", "Mcm5","H2ax", "Birc5", "Gadd45b", "Atf3", "Lmna", "Hmgb2", "Bax", "Apaf1"), group.by = "group"))+
+  theme(axis.text.x=element_text(size=rel(0.8), angle=90))+
+  ggtitle("Selected genes in MPP3")+
+  theme(plot.title = element_text(hjust=0.5))
+ggsave("2024-10-04_Dotplot_MPP3_aging_markers.pdf", DotplotMPP3, device=cairo_pdf,width = 15, height = 7, units = c("in"))
+
+```
+
+
+#17 Differentielle Expressionsanalyse LT-HSC Cluster
+
+#17a Dataset Vorbereitung vor Gene und TE Expressionsanalyse
+```{r}
+#Idents(test.data) <- "seurat_annotations"
+test.data$seurat_annotations <- Idents(test.data)
+
+# Hier kombiniere ich Old Alcohol und Old Alcohol 2 Samples zu Old Alcohol Grup.
+
+test.data$celltype.stim <- paste(test.data$seurat_annotations,test.data$group, sep = "_")
+Idents(test.data) <- "celltype.stim"
+test.data<-PrepSCTFindMarkers(test.data)
+
+```
+
+#17b DEG Analysierung von LT-HSC Cluster starten
+```{r}
+# Hier analyziere ich die DEGs von Old Alcohol gegen Old Control beim LT-HSC Cluster
+
+options(future.globals.maxSize = 26000 * 1024^2) # Diese Linie ist fur den Arbeitspeicher RAM vergrossern. Andernsfall das Kode arbeitet nicht
+
+OAvsOC<- FindMarkers(test.data, ident.1 = "LT-HSC_Old alcohol", ident.2 = "LT-HSC_Old control", test.use = "t", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Young Alcohol gegen Young control beim LT-HSC Cluster
+YAvsYC <- FindMarkers(test.data, ident.1 = "LT-HSC_Young alcohol", ident.2 = "LT-HSC_Young control", test.use = "t", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Control gegen Young Control beim LT-HSC Cluster
+OCvsYC<- FindMarkers(test.data, ident.1 = "LT-HSC_Old control", ident.2 = "LT-HSC_Young control", test.use = "t", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Alcohol gegen Young Control beim LT-HSC Cluster
+OAvsYC<- FindMarkers(test.data, ident.1 = "LT-HSC_Old alcohol", ident.2 = "LT-HSC_Young control", test.use = "t", verbose = FALSE)
+
+# Hier analyziere ich DEGs von YA gegen OC group
+YAvsOC<- FindMarkers(test.data, ident.1 = "LT-HSC_Young alcohol", ident.2 = "LT-HSC_Old control", test.use = "t", verbose = FALSE)
+
+OAvsOC$genes<-rownames(OAvsOC) # extract gene names and add into a new column
+YAvsYC$genes<-rownames(YAvsYC) # extract gene names and add into a new column
+OCvsYC$genes<-rownames(OCvsYC) # extract gene names and add into a new column
+OAvsYC$genes<-rownames(OAvsYC) # extract gene names and add into a new column
+YAvsOC$genes<-rownames(YAvsOC) # extract gene names and add into a new column
+xlsx::write.xlsx(OAvsOC, "OAvsOC_LT-HSC_DEG.xlsx") # save into an Excel file
+xlsx::write.xlsx(YAvsYC, "YAvsYC_LT-HSC_DEG.xlsx")
+xlsx::write.xlsx(OCvsYC, "OCvsYC_LT-HSC_DEG.xlsx")
+xlsx::write.xlsx(OAvsYC, "OAvsYC_LT-HSC_DEG.xlsx")
+xlsx::write.xlsx(YAvsOC, "YAvsOC_LT-HSC_DEG.xlsx")
+```
+
+#17b UMAP visualizierung auf SELP
+```{r}
+DefaultAssay(CombinedCluster_YC) <- "SCT"
+YC<-FeaturePlot(CombinedCluster_YC, features = c("Eif2ak2"), max.cutoff = 2, min.cutoff = -2, reduction = "umap", pt.size = 0.5) +
+scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+YC
+
+YA<-FeaturePlot(CombinedCluster_YA, features = c("Eif2ak2"), max.cutoff = 2, min.cutoff = -2, reduction = "umap", pt.size = 0.5, keep.scale = "feature") +
+scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+YA
+
+OC<-FeaturePlot(CombinedCluster_OC, features = c("Eif2ak2"), max.cutoff = 2, min.cutoff = -2, reduction = "umap", pt.size = 0.5, keep.scale = "feature") +
+scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+OC
+
+OA<-FeaturePlot(CombinedCluster_OA, features = c("Eif2ak2"), max.cutoff = 2, min.cutoff = -2, reduction = "umap", pt.size = 0.5, keep.scale = "feature") +
+scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral")))
+OA
+
+ggsave("2024-10-04_Eif2ak2_LT-HSC_YC.pdf", YC, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+ggsave("2024-10-04_Eif2ak2_LT-HSC_YA.pdf", YA, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+ggsave("2024-10-04_Eif2ak2LT-HSC_OC.pdf", OC, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+ggsave("2024-10-04_Eif2ak2_LT-HSC_OA.pdf", OA, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+```
+
+#########################################
+# GSEA Hallmark Analysierung uber den LT-HSC cluster im OA gegen OC Gruppe
+```{r}
+OAvsOC.ordered <- OAvsOC[order(OAvsOC$avg_log2FC, decreasing = T),]
+
+ranks <- OAvsOC.ordered$avg_log2FC
+
+names(ranks) <- rownames(OAvsOC.ordered)
+
+fgseaRes <- fgseaMultilevel(pathways = fgsea_sets, 
+                  stats = ranks,
+                  minSize=5,
+                  maxSize=1000, 
+                  nPermSimple = 100000,
+                  gseaParam = T)
+
+fgseaRes.ordered <- fgseaRes[order(fgseaRes$padj),]
+head(fgseaRes.ordered)
+
+fgseaResTidy <- fgseaRes %>%
+  as_tibble() %>%
+  arrange(padj)
+
+# only plot the top 10 pathways
+top_50_pathways <- fgseaResTidy %>% dplyr::filter(pval < 0.1) %>% head(n= 50)
+View(top_50_pathways)
+#barplot visualization
+ggplot(top_50_pathways, aes(reorder(pathway, NES), NES)) +
+  geom_col(aes(fill= NES < 0)) +
+  coord_flip() +
+  labs(x="Pathway", y="Normalized Enrichment Score",
+       title="Top Hallmarks in LT-HSC OA vs OC") + 
+  theme_minimal()
+
+# bubble plot visualization
+ ggplot(top_50_pathways, aes(y = pathway, x = NES, size = size)) + 
+  geom_point(aes(color = -log10(padj), size= size)) +
+   scale_color_gradient(name = waiver(), low = "blue", high = "red", space = "Lab", aesthetics = "colour")+ labs(x="Normalized Enrichment Score (NES)", y="Pathways",
+       title="Top Hallmarks in LT-HSC OA vs OC") 
+
+#top_50_pathways <- apply(top_50_pathways,2,as.character)
+#write.table(top_50_pathways, "2024-08-01_Hallmark_GSEA_LT-HSC_OA_vs_OC.csv", quote = FALSE, sep = "\t", row.names = F)
+```
+
+# GSEA C2 Analysierung uber den LT-HSC cluster im OA gegen OC Gruppe
+# Vorbereitung der MsigdB C2 gene sets
+```{r}
+m_C2_df <- msigdbr(species = "Mus musculus", category = "C2")
+head(m_C2_df)
+fgseaC2_sets<- m_C2_df %>% split(x = .$gene_symbol, f = .$gs_name)
+head(fgseaC2_sets)
+OAvsOC.ordered <- OAvsOC[order(OAvsOC$avg_log2FC),]
+ranks <- OAvsOC.ordered$avg_log2FC
+names(ranks) <- rownames(OAvsOC.ordered)
+
+fgseaResC2 <- fgseaMultilevel(pathways = fgseaC2_sets, 
+                  stats = ranks,
+                  minSize=5,
+                  maxSize=1000, 
+                  nPermSimple = 100000,
+                  gseaParam = T)
+
+fgseaResC2.ordered <- fgseaRes[order(fgseaResC2$padj),]
+head(fgseaResC2.ordered)
+
+fgseaResTidyC2 <- fgseaResC2 %>%
+  as_tibble() %>%
+  arrange(padj)
+
+# only plot the top 10 pathways
+top_50_pathwaysC2 <- fgseaResTidyC2 %>% dplyr::filter(pval < 0.1) %>% head(n= 50)
+view(top_50_pathwaysC2)
+#barplot visualization
+ggplot(top_50_pathwaysC2, aes(reorder(pathway, NES), NES)) +
+  geom_col(aes(fill= NES < 0)) +
+  coord_flip() +
+  labs(x="Pathway", y="Normalized Enrichment Score",
+       title="Top C2 in LT-HSC OA vs OC") + 
+  theme_minimal()
+
+# bubble plot visualization
+ ggplot(top_50_pathwaysC2, aes(y = pathway, x = NES, size = size)) + 
+  geom_point(aes(color = -log10(padj), size= size)) +
+   scale_color_gradient(name = waiver(), low = "blue", high = "red", space = "Lab", aesthetics = "colour")+ labs(x="Normalized Enrichment Score (NES)", y="Pathways",
+       title="Top C2 in LT-HSC OA vs OC") 
+
+#top_50_pathwaysC2 <- apply(top_50_pathways,2,as.character)
+#write.table(top_50_pathwaysC2, "2024-08-01_C2_GSEA_LT-HSC_OA_vs_OC.csv", quote = FALSE, sep = "\t", row.names = F)
+```
+
+Die Ergebnisse sind so Groß. Deshalb möchte ich nur die kleine Menge des Genesets zur Visualizierung nehmen
+# Subset die Ergebniss für die selected genesets
+```{r}
+# nimmt die Genesets als die rownames
+selectedgenesets<- c("REACTOME_RUNX1_REGULATES_GENES_INVOLVED_IN_MEGAKARYOCYTE_DIFFERENTIATION_AND_PLATELET_FUNCTION","REACTOME_DNA_DOUBLE_STRAND_BREAK_REPAIR", "REACTOME_PROCESSING_OF_DNA_DOUBLE_STRAND_BREAK_ENDS","REACTOME_CELL_CYCLE_MITOTIC","LEE_EARLY_T_LYMPHOCYTE_UP","REACTOME_TRANSCRIPTIONAL_REGULATION_OF_GRANULOPOIESIS", "KAMIKUBO_MYELOID_CEBPA_NETWORK", "BROWN_MYELOID_CELL_DEVELOPMENT_UP",
+                     "REACTOME_CYTOKINE_SIGNALING_IN_IMMUNE_SYSTEM", "GERY_CEBP_TARGETS", "PHONG_TNF_TARGETS_UP", "HECKER_IFNB1_TARGETS","BOSCO_INTERFERON_INDUCED_ANTIVIRAL_MODULE", "ZHANG_INTERFERON_RESPONSE", "REACTOME_DNA_DAMAGE_TELOMERE_STRESS_INDUCED_SENESCENCE",
+                     "REACTOME_SENESCENCE_ASSOCIATED_SECRETORY_PHENOTYPE_SASP", "REACTOME_CELLULAR_SENESCENCE", "REACTOME_OXIDATIVE_STRESS_INDUCED_SENESCENCE", "REACTOME_EPIGENETIC_REGULATION_OF_GENE_EXPRESSION", "NUYTTEN_EZH2_TARGETS_DN", "JACKSON_DNMT1_TARGETS_UP",
+                     "REACTOME_SIRT1_NEGATIVELY_REGULATES_RRNA_EXPRESSION", "REACTOME_PRC2_METHYLATES_HISTONES_AND_DNA", "WP_GPCRS_OTHER", 
+                     "REACTOME_FORMATION_OF_FIBRIN_CLOT_CLOTTING_CASCADE", "REACTOME_AMINE_LIGAND_BINDING_RECEPTORS", "BIOCARTA_MHC_PATHWAY")
+
+
+genesetsubsets<-fgseaResTidyC2[fgseaResTidyC2$pathway%in% selectedgenesets,]
+
+genesetsubsets
+#WriteXLS::WriteXLS(genesetsubsets, "2024-08-26_GSEA_C2_LT-HSC_OA_vs_OC.xlsx")
+
+plotEnrichment(fgseaC2_sets[["REACTOME_DNA_METHYLATION"]],
+               ranks, gseaParam = 0.5, ticksSize = 0.5) + labs(title="REACTOME_DNA_METHYLATION")
+```
+
+```{r}
+# bubble plot visualization
+ ggplot(genesetsubsets, aes(y = pathway, x = NES, size = size)) + 
+  geom_point(aes(color = -log10(pval), size= size)) +
+   scale_color_gradient(name = waiver(), low = "blue", high = "red", space = "Lab", aesthetics = "colour")+ labs(x="Normalized Enrichment Score (NES)", y="Pathways",
+       title="GSEA Selected C2 LT-HSC OA vs OC") 
+
+#barplot visualization
+ggplot(genesetsubsets, aes(reorder(pathway, NES), NES)) +
+  geom_col(aes(fill= NES < 0)) +
+  coord_flip() +
+  labs(x="Pathway", y="Normalized Enrichment Score",
+       title="GSEA Selected C2 LT-HSC OA vs OC") + 
+  theme_minimal()
+
+```
+
+```{r}
+sessionInfo()
+```

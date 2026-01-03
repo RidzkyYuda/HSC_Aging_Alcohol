@@ -1,0 +1,1045 @@
+---
+title: "Figure Panel 2 HSC Alcohol-Aging paper"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+Description:
+Here is the documentation of the analysis conducted to generate figure panel 2 of manuscript
+Start of the analysis February 8th, 2025
+
+```{r}
+set.seed(1)
+```
+
+
+# 1 Install Required Packages
+```{r}
+#remotes::install_github("satijalab/seurat", "seurat5", quiet = TRUE)
+#install.packages("sctransform")
+#install.packages("harmony")
+#BiocManager::install("harmony", version = "3.16")
+#BiocManager::install("glmGamPoi")
+#BiocManager::install("clustermole")
+#install.packages("pathfindR")
+#BiocManager::install("dittoSeq")
+#BiocManager::install("formatR")
+#BiocManager::install("ComplexHeatmap")
+#BiocManager::install("fgsea")
+#install.packages("msigdbr")
+#devtools::install_github("jhrcook/readgmt")
+#BiocManager::install("AUCell")
+#BiocManager::install("decoupleR")
+#BiocManager::install("UCell")
+#BiocManager::install("install")
+#install_github("GuangchuangYu/bitr")
+```
+
+# 2 Activate Package Libraries
+```{r}
+library(UCell)
+library(decoupleR)
+library(readgmt)
+library(stringr)
+library(RColorBrewer)
+library(Seurat)
+library(patchwork)
+library(sctransform)
+library(harmony)
+library(ggplot2)
+library(patchwork)
+library(tidyverse)
+library(cowplot)
+library(dplyr)
+library(glmGamPoi)
+library(ggsci)
+library(RCurl)
+library(AnnotationHub)
+library(ensembldb)
+library(dittoSeq)
+library(formatR)
+library(ComplexHeatmap)
+library(circlize)
+library(fgsea)
+library(msigdbr)
+library(dplyr)
+library(SingleR)
+library(celldex)
+library(ggpubr)
+library(readxl)
+```
+
+
+# 3 Load Seurat Object by reading from RDS file generated following Cluster Annotation
+```{r}
+CombinedCluster <- readRDS("~/scratch4-mjung9/ryuda1/RY27_LSK_scRNA-seq_scTE/2024-10-02_Cluster_Annotations/combined3Cluster.Seurat.rds")
+```
+
+
+```{r}
+labels <-c("LT-HSC", 
+           "MPP4/LMPP", 
+           "ST-HSC", 
+           "CLP", 
+           "MPP4/LMPP", 
+           "ST-HSC", 
+           "CLP", 
+           "Unknown", 
+           "ST-HSC", 
+           "CLP", 
+           "MDP", 
+           "MPP3", 
+           "MPP2",
+           "MPP3",
+           "B cell prog",
+           "Baso-Mast-Prog",
+           "ST-HSC",
+           "MDP",
+           "B cell prog",
+           "pDC/DC-prog",
+           "T cell prog",
+           "ST-HSC",
+           "MPP3",
+           "Baso-Mast-Prog",
+           "T cell prog",
+           "MEP",
+           "B cell prog",
+           "B cell prog",
+           "B cell prog",
+           "GMP",
+           "pDC/DC-prog",
+           "CDP")
+
+# create a new column in metadata
+CombinedCluster$CellType <- CombinedCluster$seurat_clusters
+
+# replace cluster number by cell type
+levels(CombinedCluster$CellType) <-labels
+
+```
+
+```{r}
+CombinedCluster@meta.data$group <- factor(x = CombinedCluster@meta.data$group, levels = c("Young control", "Young alcohol", "Old control", "Old alcohol")) # relevel group order
+
+CombinedCluster@meta.data$CellType <- factor(x = CombinedCluster@meta.data$CellType, levels = c("LT-HSC", "ST-HSC", "Unknown","MPP2", "MPP3", "MPP4/LMPP", "MEP", "GMP", "MDP", "CLP", "CDP", "Baso-Mast-Prog", "pDC/DC-prog", "B cell prog", "T cell prog")) # relevel cluster order
+
+```
+
+#4 Visualize UMAP from the Seurat object
+```{r}
+colors <- c("#e3d132","#99bd4b","#5fc26f","#1F78B4","#A6CEE3", "#E31A1C","#E3751C","#600078", "#33A02C", "#FDBF6F", "#526317", "#ae5e93", "#784620", "#edbbe3", "#eb5252")
+
+All<-print(DimPlot(object = CombinedCluster, 
+        reduction = "umap", 
+        label = F,
+        pt.size = 0.1,
+        repel = T,
+        label.size = 4,
+        cols = colors)) + ggtitle("All Group UMAP") +
+  theme(plot.title = element_text(hjust=0.5))
+All
+ggsave("2025-02-08_All_samples_no_label_UMAP.pdf", All, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+```
+
+```{r}
+# relevel identity
+Idents(CombinedCluster) <- factor(Idents(CombinedCluster), levels = c("LT-HSC", "ST-HSC", "MPP2", "MPP3", "MPP4", "MEP", "CLP", "GMP","CDP", "MDP", "Baso/Mast progenitor", "pDC/DC progenitor", "T cell progenitor", "B cell prog", "Unknown"))
+```
+
+##-> All UMAP after relevel
+```{r}
+Allnew<-print(DimPlot(object = CombinedCluster, 
+        reduction = "umap", 
+        label = F,
+        pt.size = 0.1,
+        repel = T,
+        label.size = 4,
+        cols = colors)) + ggtitle("All Group UMAP") +
+  theme(plot.title = element_text(hjust=0.5))
+Allnew
+ggsave("2025-10-29_All_samples_no_label_UMAP.pdf", Allnew, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+```
+
+
+##-> subset YC
+```{r}
+CombinedCluster_YC <- subset(CombinedCluster, group %in% "Young control")
+
+YC_UMAP<-print(DimPlot(object = CombinedCluster_YC, 
+        reduction = "umap", 
+        label = F,
+        pt.size = 1,
+        repel = T,
+        label.size = 4,
+        cols = colors)) +
+  ggtitle("Young Control")+
+  theme(plot.title = element_text(hjust=0.5))
+ggsave("2025-10-28_YC_UMAP.pdf", YC_UMAP, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+```
+
+##-> subset YA
+```{r}
+CombinedCluster_YA <- subset(CombinedCluster, group %in% "Young alcohol")
+
+YA_UMAP<-print(DimPlot(object = CombinedCluster_YA, 
+        reduction = "umap", 
+        label = F,
+        pt.size = 1,
+        repel = T,
+        label.size = 4,
+        cols = colors))+
+  ggtitle("Young Alcohol")+
+  theme(plot.title = element_text(hjust=0.5))
+ggsave("2025-10-28_YA_UMAP.pdf", YA_UMAP, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+```
+
+##-> subset OC
+```{r}
+CombinedCluster_OC <- subset(CombinedCluster, group %in% "Old control")
+
+OC_UMAP<-print(DimPlot(object = CombinedCluster_OC, 
+        reduction = "umap", 
+        label = F,
+        pt.size = 1,
+        repel = T,
+        label.size = 4,
+        cols = colors))+
+  ggtitle("Old Control")+
+  theme(plot.title = element_text(hjust=0.5))
+ggsave("2025-10-28_OC_UMAP.pdf", OC_UMAP, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+```
+
+##-> subset OA
+```{r}
+CombinedCluster_OA <- subset(CombinedCluster, group %in% "Old alcohol")
+
+OA_UMAP<-print(DimPlot(object = CombinedCluster_OA, 
+        reduction = "umap", 
+        label = F,
+        pt.size = 1,
+        repel = T,
+        label.size = 4,
+        cols = colors))+
+  ggtitle("Old Alcohol")+
+  theme(plot.title = element_text(hjust=0.5))
+ggsave("2024-10-28_OA_UMAP.pdf", OA_UMAP, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+```
+
+## -> Plot Stem Cell module score
+```{r}
+stemcell<-VlnPlot(
+  CombinedCluster,
+  features = "Stem_cell_score1",
+  assay = "SCT",
+  pt.size = 0,
+  cols = colors  # <- colors are mapped in the order of Idents(CombinedCluster)
+) +
+  stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow",
+               position = position_dodge(width = 0.9)) +
+  geom_boxplot(width = 0.1, color = "black", alpha = 0.5,
+               position = position_dodge(width = 0.9)) +
+  scale_y_continuous(limits = c(0, 1.2)) +
+  theme_classic()
+
+ggsave("2025-10-28_StemCellScore.pdf", stemcell, device=cairo_pdf,width = 15, height = 6, units = c("in"))
+```
+
+##-> Zelltypeanteil der Cluster
+```{r}
+# population frequency
+pt <- table(Idents(CombinedCluster),CombinedCluster$group)
+pt <- as.data.frame(pt)
+
+orders <- c("Young control", "Young alcohol", "Old control", "Old alcohol")
+pt$Var2 <- factor(pt$Var2,levels = c("Young control", "Young alcohol", "Old control", "Old alcohol"))
+
+type<-ggplot(pt, aes(x = Var2, y = Freq, fill = Var1))+
+  theme_bw(base_size = 15) +
+  geom_col(position = "fill", width = 0.6) +
+  xlab("Group") +
+  ylab("Cell type proportion") + 
+  scale_fill_manual(values = colors) + 
+  theme(legend.title = element_blank()) +
+  theme(axis.text.x=element_text(size=rel(1), angle=0))
+type
+ggsave("2025-10-28_cell_type_proportion.pdf", type, device=cairo_pdf,width = 5, height = 5, units = c("in"))
+
+```
+
+#5 Split UMAP into 4 groups
+```{r}
+# Young control
+CombinedCluster_YC <- subset(CombinedCluster, group %in% "Young control")
+
+YC_UMAP<-print(DimPlot(object = CombinedCluster_YC, 
+        reduction = "umap", 
+        label = F,
+        pt.size = 1,
+        repel = T,
+        label.size = 4,
+        cols = colors)) +
+  ggtitle("Young Control")+
+  theme(plot.title = element_text(hjust=0.5))
+ggsave("2025-06-13_YC_UMAP.pdf", YC_UMAP, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+
+# number of cells in the YC group
+length(rownames(CombinedCluster_YC@meta.data))
+
+# save YC as a new Seurat object
+saveRDS(CombinedCluster_YC, "Seurat_YoungControl.rds")
+
+# Young alcohol
+CombinedCluster_YA <- subset(CombinedCluster, group %in% "Young alcohol")
+
+YA_UMAP<-print(DimPlot(object = CombinedCluster_YA, 
+        reduction = "umap", 
+        label = F,
+        pt.size = 1,
+        repel = T,
+        label.size = 4,
+        cols = colors))+
+  ggtitle("Young Alcohol")+
+  theme(plot.title = element_text(hjust=0.5))
+ggsave("2025-06-13_YA_UMAP.pdf", YA_UMAP, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+
+# number of cells in YA group
+length(rownames(CombinedCluster_YA@meta.data))
+
+# save YA as a new Seurat object
+saveRDS(CombinedCluster_YA, "Seurat_YoungAlcohol.rds")
+
+# Old control
+CombinedCluster_OC <- subset(CombinedCluster, group %in% "Old control")
+
+OC_UMAP<-print(DimPlot(object = CombinedCluster_OC, 
+        reduction = "umap", 
+        label = F,
+        pt.size = 1,
+        repel = T,
+        label.size = 4,
+        cols = colors))+
+  ggtitle("Old Control")+
+  theme(plot.title = element_text(hjust=0.5))
+ggsave("2025-06-13_OC_UMAP.pdf", OC_UMAP, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+
+# number of cells in OC group
+length(rownames(CombinedCluster_OC@meta.data))
+# save OC as a new Seurat Object
+saveRDS(CombinedCluster_OC, "Seurat_OldControl.rds")
+
+#Old alcohol
+CombinedCluster_OA <- subset(CombinedCluster, group %in% "Old alcohol")
+
+OA_UMAP<-print(DimPlot(object = CombinedCluster_OA, 
+        reduction = "umap", 
+        label = F,
+        pt.size = 1,
+        repel = T,
+        label.size = 4,
+        cols = colors))+
+  ggtitle("Old Alcohol")+
+  theme(plot.title = element_text(hjust=0.5))
+ggsave("2025-06-13_OA_UMAP.pdf", OA_UMAP, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+
+# number of cells in the OA group
+length(rownames(CombinedCluster_OA@meta.data))
+# save OA as a new Seurat object
+saveRDS(CombinedCluster_OA, "Seurat_OldAlcohol.rds")
+```
+
+#6 Add Module Scores
+```{r}
+# Stem cell module scores from Nestorowa
+Stemcellgenes<-c("Procr", "Mecom", "Trpc6","Slamf1","Meis1", "Esam", "Pdzk1ip1", "Hoxb5", "Fgd5", "Mpl", "Ctnaal1", "Tie1", "F11r", "Cish", "Tinagl1", "Scarf1")
+
+CombinedCluster<- AddModuleScore(CombinedCluster, features=list(Stemcellgenes), name='Stem_cell_score')
+
+# Interferon-stimulated genes from Bouman et al https://www.life-science-alliance.org/content/7/3/e202302309#F1
+interferon_stimulated_genes<-read.table("~/scratch4-mjung9/ryuda1/RY27_LSK_scRNA-seq_scTE/2025-02-08_FigurePanel2Analysis/gene_list_Bouman/interferon_stimulated_genes.csv", header = TRUE, sep = ";") %>% 
+  as.data.frame()
+isg_genes<-interferon_stimulated_genes$Gene
+CombinedCluster<- AddModuleScore(CombinedCluster, features=list(isg_genes), name='ISG_score')
+
+# Interferome-regulated genes obtained by filtering DEG lists into interferome website (IRG gene list 1 with criteria AvgLFC >= 0.58, Padj <= 0.05)
+irg_interferome<-read.table("~/scratch4-mjung9/ryuda1/RY27_LSK_scRNA-seq_scTE/2025-02-08_FigurePanel2Analysis/IRG/IRG_list1.txt", header = TRUE, sep = "\t") %>% 
+  as.data.frame()
+irg_genes<-irg_interferome$Gene.Name
+#irg_genes_high_inOA<-c("Shisa9", "Plcl1", "Oas1g", "Rbm19", "Dyrk3", "Fosb", "Pcp4l1", "Ifi27", "Etv5", "Crb2", "Snord47", "Socs3")
+#irg_genes_high_inOA_and_YA <-c("Klf2","Isg15", "Irf7", "Wfdc17", "Cdk11b", "Ifi44", "Clk1", "Zfp36", "Dusp1", "Fosl2", "Klf6", "Klf9", "Junb", "Coq10b", "Gvin1", "Fos", "Ccnl1", "Egr1", "Rasgef1b")
+#irg_genes_combined<-c(irg_genes_high_inOA_and_YA, irg_genes_high_inOA_and_YA)
+CombinedCluster<- AddModuleScore(CombinedCluster, features=list(irg_genes), name='IRG_list1')
+
+# Myeloid transcription factors from Bouman et al
+BioProcess<-read.table("~/scratch4-mjung9/ryuda1/RY27_LSK_scRNA-seq_scTE/2025-02-08_FigurePanel2Analysis/gene_list_Bouman/biological_process_marker_genes.csv", header = TRUE, sep = ";") %>% 
+  as.data.frame()
+myeloTF<-BioProcess$myeloid_TFs
+CombinedCluster<- AddModuleScore(CombinedCluster, features=list(myeloTF), name='Myelo_TF_score')
+
+# Neutrophil differentiation score from Bouman 
+neudifgenes<-BioProcess$neutrophil_differentiation
+neudifgenes<-neudifgenes[1:24]
+CombinedCluster<- AddModuleScore(CombinedCluster, features=list(neudifgenes), name='Neutrophil_Differentiation_score')
+
+# Monocytes differentiation score from Bouman
+monodifgenes<-BioProcess$monocyte_differentiation
+monodifgenes<-monodifgenes[1:26]
+CombinedCluster<- AddModuleScore(CombinedCluster, features=list(monodifgenes), name='Monocyte_Differentiation_score')
+
+# TE silencers
+Zfp<- c("Zfp13", "Zfp74", "Zfp84", "Zfp90", "Zfp93", "Zfp141", "Zfp202","Zfp282", "Zfp398", "Zfp445", "Zfp459", "Zfp809", "Zfp932", "Zfp984")
+DNMTs<- c("Dnmt1", "Dnmt3a", "Dnmt3b", "Uhrf1", "Uhrf2", "Ezh2", "Rb1", 
+         "Ehmt1", "Ehmt2", "Usp7")
+NuRD<- c("Hdac2", "Rbbp4", "Rbbp7", "Mta1", "Mta2", "Mta3", "Mbd2", "Mbd3", "Chd4")
+PIWI<- c("Piwil4", "Piwil2","Ddx4", "Mov10")
+Hush<- c("Tasor2", "Pphln1")
+OtherTESilencers<-c("Setdb1", "Trim28", "Cbx3", "Hnrnpc", "Mettl3", "Mettl14", "Wtap", "Zc3h13", "Adnp")
+#combining KRAB-ZFP from two vector lists
+# taking KRAB-ZFP list from reactome regulation of endogenous retroelements
+regretro<-as.vector(read.table("Reactome_Regulation_Endogenous_Retroelement.txt", header = FALSE, stringsAsFactors = FALSE)[[1]])
+KRABonlyfromReactomeGeneset<-regretro[79:105]
+KRAB_ZFP<-union(Zfp,KRABonlyfromReactomeGeneset)
+
+TEsilencers<-c("Dnmt1", "Dnmt3a", "Dnmt3b", "Uhrf1", "Uhrf2", "Ezh2", "Rb1", "Ehmt1", "Ehmt2", "Usp7", "Hdac2", "Rbbp4", "Rbbp7", "Mta1", "Mta2", "Mta3", "Mbd2", "Mbd3", "Chd4", "Piwil4", "Piwil2","Ddx4", "Mov10", "Tasor2", "Pphln1", "Zfp13", "Zfp74", "Zfp84", "Zfp90", "Zfp93", "Zfp141", "Zfp202", "Zfp282", "Zfp398", "Zfp445", "Zfp459", "Zfp809", "Zfp932", "Zfp984", "Zfp160", "Zfp317", "Zfp324", "Zfp345", "Zfp354a", "Zfp382", "Zfp433", "Zfp442", "Zfp454", "Zfp53", "Zfp54", "Zfp677", "Zfp708", "Zfp873", "Zfp934", "Zfp937", "Zfp950", "Zfp960", "Zfp97", "Zfp970", "Zfp975", "Zfp976")
+
+CombinedCluster<-AddModuleScore(CombinedCluster, features=list(KRAB_ZFP), name='KRAB-ZFP')
+CombinedCluster<-AddModuleScore(CombinedCluster, features=list(DNMTs), name='DNMT_module_score')
+CombinedCluster<-AddModuleScore(CombinedCluster, features=list(NuRD), name='NuRD_module_score')
+CombinedCluster<-AddModuleScore(CombinedCluster, features=list(PIWI), name='Piwi_module_score')
+CombinedCluster<-AddModuleScore(CombinedCluster, features=list(Hush), name='Hush_module_score')
+CombinedCluster<-AddModuleScore(CombinedCluster, features=list(OtherTESilencers), name='OtherTEsilencers_module_score')
+
+#nucleic acid sensors
+NucSensors<-c("Ifih1", "Ifit1","Ifitm1","Ddx58", "Dhx58", "Ddx60", "Rigi", "Adar", "Trim28","Tlr2", "Tlr6", "Tlr7", "Tlr9", "Nlrp5", "Nlrp10", "Nlrp12", "Nlrx1", "Eif2a", "Eif2ak1", "Eif2ak2", "Eif2ak3", "Eif2ak4", "Cgas", "Sting1","Tmem173", "Aim2", "Mavs", "Ticam1", "Traf1", "Traf3", "Traf5", "Traf6", "Irak1", "Irak3", "Irak4", "Tbk1", "Irf1", "Irf2", "Irf3", "Irf7", "Irf9", "Nfkb1", "Nfkbid", "Nfkbie")
+CombinedCluster<- AddModuleScore(CombinedCluster, features=list(NucSensors), name='Nucleic_acid_sensor_module_scores')
+
+# Inflammation
+inflam<-read_excel("PRR_and_downstream_signaling.xlsx", col_names = TRUE, sheet = "Sheet1")
+inflam <- inflam[[1]] 
+CombinedCluster<-AddModuleScore(CombinedCluster, features=list(inflam), name='Inflammation_module_score')
+
+# Aging HSC module
+# list of aging HSC marker genes from Svendsen et al Blood 2021 #https://doi.org/10.1182/blood.2020009729
+aging_markers_table<-readxl::read_xlsx('~/scratch4-mjung9/ryuda1/RY27_LSK_scRNA-seq_scTE/2023-03-04_Figure_Analysis/AgingSignature2.xlsx') %>% as.data.frame() #%>% dplyr::filter(Log2FC > 0)
+aging_markers_hsc<-aging_markers_table$Gene
+aging_markers_hsc<-aging_markers_hsc[!is.na(aging_markers_hsc)]
+#saveRDS(aging_markers_hsc, file = "aging_markers_hsc.rds")
+#readRDS("aging_markers_hsc.rds")
+CombinedCluster<- AddModuleScore(CombinedCluster, features=list(aging_markers_hsc), name='Aging_HSC_Svendsen')
+
+#p53 Target genes (based on validated p53 target genes published in https://www.thelancet.com/journals/ebiom/article/PIIS2352-3964(17)30215-3/fulltext)
+p53targetgenes<-c("Chek1","Pidd1", "Pold1", "Pcna", "Aifm1", "Stag1", "Clic4", "Slc19a2", "Mlh1", "Ptp4a3", "Psrc1", "Ckap2", "Birc5", "Plk1", "Apaf1", "Pmaip1", "Iscu", "Tap1", "Casp8", "Isyna1", "Rps27l", "S100a9", "Bad", "Spp1", "Dusp6", "Gadd45a", "Ndrg1", "Unc5a", "Fbxw7", "Pten", "Ccnk", "Cst3", "Gpx1", "Cryab", "Fdxr", "Tert", "Bid", "Irf2bp2", "Lasp1", "Tigar", "Prdm1", "Btg2", "Nlrc4", "Cpt1c", "Sema3f", "Col4a1", "Ptk2", "Fas", "Rnf144b", "Igfbp7", "Gdf15", "Epha2", "Plk2", "Cdkn1a", "Eda2r", "Phlda3", "Bax", "Zmat3", "Pvt1", "Sulf2", "Ccng1", "Bbc3", "Perp", "Casp1", "Tnfrsf10b", "Ctsd", "Ier5", "Pml", "Rchy1", "Sat1", "Dusp11", "Mdm2", "Ak1", "Aldh4a1", "Adora2b", "Scn3b", "Ninj1", "Rgs14", "Cd82", "Shisa5", "Padi4", "Sesn1", "Dusp2", "Dusp5", "Irf5", "Notch1", "Ddit4", "Traf4", "Ier3", "Park2", "Cx3cl1", "Dusp1", "Pkd1", "Rhoc", "Icam1", "Irf7", "Eif2ak2", "Rrm2b", "Bnip3l", "Trim3", "Rbm38", "Gls2", "Pcbp4", "Pdrg1", "Rap2b", "Ncf2", "Sfn", "Cdip1", "Dram1", "Ei24", "Aifm2", "Slc2a9", "Trp53")
+
+CombinedCluster<- AddModuleScore(CombinedCluster, features=list(p53targetgenes), name='p53_target_module_score')
+
+#HaemP53 based on conserved 16 p53 target genes found in HSPC  as reported by Patel paper MengWang et al Molecular Cell 2023
+HaemP53<-c(
+  "Cdkn1a", "Eda2r", "Phlda3", "Bax", "Zmat3", "Pvt1", "Sulf2", "Ccng1", "Bbc3", "Perp",
+  "Casp1", "Aen", "Tnfrsf10b", "Ctsd", "Ier5", "Pml"
+)
+
+CombinedCluster<- AddModuleScore(CombinedCluster, features=list(HaemP53), name='HaemP53_Module_Score')
+
+# database of ribosomal protein genes
+#http://ribosome.med.miyazaki-u.ac.jp
+
+Ribosomegenes<-c("Rpsa", "Rps2", "Rps3a", "Rps4x", "Rps5", "Rps6", "Rps7", "Rps8", "Rps9", "Rps10",
+                 "Rps11", "Rps12", "Rps13", "Rps14", "Rps15", "Rps15a", "Rps16", "Rps17", "Rps18", "Rps19", "Rps20", "Rps21", "Rps23", "Rps24", "Rps25", "Rps26", "Rps27", "Rps27a", "Rps28", "Rps29", "Rps30", "Rpl3", "Rpl4", "Rpl5", "Rpl6", "Rpl7", "Rpl7a", "Rpl8", "Rpl9", "Rpl10", "Rpl10a", "Rpl11", "Rpl12", "Rpl13", "Rpl13a", "Rpl14", "Rpl15", "Rpl17", "Rpl18", "Rpl18a", "Rpl19", "Rpl21", "Rpl22", "Rpl23", "Rpl23a", "Rpl24", "Rpl26", "Rpl27", "Rpl27a", "Rpl28", "Rpl29", "Rpl30", "Rpl31", "Rpl32", "Rpl34", "Rpl35", "Rpl35a", "Rpl36", "Rpl44", "Rpl37", "Rpl37a", "Rpl38", "Rpl39", "Rpl40", "Rpl41", "Rplp0", "Rplp1", "Rplp2" )
+
+CombinedCluster<- AddModuleScore(CombinedCluster, features=list(Ribosomegenes), name='Ribosomal_proteins_module_score')
+```
+
+#7 Subset Seurat object into several upstream progenitors
+```{r}
+HSPC<- subset(CombinedCluster, CellType %in% c("LT-HSC", "ST-HSC", "MPP2", "MPP3", "MPP4/LMPP"))
+LTHSC<- subset(CombinedCluster, CellType %in% c("LT-HSC"))
+STHSC<- subset(CombinedCluster, CellType %in% c("ST-HSC"))
+MPP2<- subset(CombinedCluster, CellType %in% c("MPP2"))
+MPP3<- subset(CombinedCluster, CellType %in% c("MPP3"))
+MPP4<- subset(CombinedCluster, CellType %in% c("MPP4/LMPP"))
+MEP<- subset(CombinedCluster, CellType %in% c("MEP"))
+HSC<-subset(CombinedCluster, CellType %in% c("LT-HSC", "ST-HSC"))
+MPP<-subset(CombinedCluster, CellType %in% c("MPP2", "MPP3", "MPP4/LMPP"))
+```
+
+#8 Dotplot visualization of aging and inflammatory genes/interferon/nucleic acid sensors in HSPC
+```{r}
+
+# Danach plotte ich die Älterungs-und Entzundung Gene von allen Zellen nach Svendsen et al.
+#DefaultAssay(Long_term_HSC_subset) <- "RNA"
+
+DotPlotLTHSC<-DotPlot(LTHSC, cols = "RdYlBu", assay = "SCT", features = c("Slamf1", "Egr1", "Aldh1a1", "Lgals1", "Cavin2","Selp", "Cd38", "Itgb3", "Clec1a", "Clca3a1","Ntf3", "Clu", "Osmr", "Spi1", "Fos", "Junb", "Socs3", "Pf4", "Eif2ak2", "Eif2ak3", "Samhd1", "Ifih1", "Ifit1", "Ifitm1", "Rigi", "Dhx58", "Irf3", "Irf7", "Cgas", "Sting1", "Nfkb1", "Ddx60", "Trim28", "Isg15", "Irf8", "Adar", "S100a9", "Cd74", "Hmgb2"), group.by = "group")+
+  theme(axis.text.x=element_text(size=rel(0.8), angle=90))+
+  ggtitle("Selected genes in LT-HSC")+
+  theme(plot.title = element_text(hjust=0.5)) +
+  scale_color_viridis_c(option = "D") +
+  theme(text = element_text(family = "Arial"))
+ggsave("2024-10-04_Dotplot_LT-HSC_aging_markers.pdf", DotPlotLTHSC, device=cairo_pdf,width = 12, height = 4, units = c("in"))
+
+DotPlotLTHSCv2<-DotPlot(LTHSC, cols = "RdYlBu", assay = "SCT", features = c("Slamf1", "Egr1", "Aldh1a1", "Lgals1", "Cavin2","Selp", "Cd38", "Itgb3", "Clec1a", "Clca3a1","Ntf3", "Clu", "Osmr", "Spi1", "Fosb", "Junb", "Socs3", "Pf4", "Eif2ak2", "Eif2ak3", "Samhd1", "Ifih1", "Ifit1", "Ifitm1", "Rigi", "Dhx58", "Irf3", "Irf7", "Cgas", "Sting1", "Nfkb1", "Ddx60", "Trim28", "Isg15", "Irf8", "Adar", "S100a9", "Cd74", "Mki67"), group.by = "group")+
+  theme(axis.text.x=element_text(size=rel(0.8), angle=90))+
+  ggtitle("Selected genes in LT-HSC")+
+  theme(plot.title = element_text(hjust=0.5)) +
+  scale_color_viridis_c(option = "D") +
+  theme(text = element_text(family = "Arial"))
+ggsave("2024-10-04_Dotplot_LT-HSC_aging_markersV2.pdf", DotPlotLTHSCv2, device=cairo_pdf,width = 12, height = 4, units = c("in"))
+
+DotPlotLTHSCv3<-DotPlot(LTHSC, cols = "RdYlBu", assay = "SCT", features = c("Fosb", "Junb", "Socs3", "Pf4", "Eif2ak2", "Eif2ak3", "Samhd1", "Ifih1", "Ifit1", "Ifitm1", "Rigi", "Dhx58", "Irf3", "Irf7", "Cgas", "Sting1", "Nfkb1", "Ddx60", "Trim28", "Isg15", "Irf8", "Adar", "S100a9", "Cd74", "Mki67"), group.by = "group")+
+  theme(axis.text.x=element_text(size=rel(0.8), angle=90))+
+  ggtitle("Selected genes in LT-HSC")+
+  theme(plot.title = element_text(hjust=0.5)) +
+  scale_color_viridis_c(option = "D") +
+  theme(text = element_text(family = "Arial"))
+ggsave("2024-10-04_Dotplot_LT-HSC_aging_markersV3.pdf", DotPlotLTHSCv3, device=cairo_pdf,width = 12, height = 4, units = c("in"))
+```
+
+#9 Dotplot visualization of myeloid developmental genes (cytokines and TFs) in several HSPC subpopulations
+```{r}
+# create a list of seurat object subseted based on clusters above
+cluster_plot <- list(LTHSC = LTHSC, STHSC = STHSC, MPP2 = MPP2, MPP3 = MPP3, MPP4 = MPP4, HSPC = HSPC, MEP = MEP, HSC = HSC, MPP = MPP)
+
+# looping to generate a pdf of plot 1 by 1 and save them in a directory DotplotMyeloid
+for (cluster_name in names(cluster_plot)) {
+    cluster <- cluster_plot[[cluster_name]]
+    p <- DotPlot(cluster, cols = "RdYlBu", assay = "SCT",
+                 features = c("Csf1r", "Csf2rb", "Spi1", "Mafb", "Maf","Cebpa", "Cebpb", "Cebpd", "Irf8"),
+                 group.by = "group") +
+        theme(axis.text.x = element_text(size = rel(0.8), angle = 90)) +
+        ggtitle(paste("Selected genes in", cluster_name)) +
+        theme(plot.title = element_text(hjust = 0.5)) +
+      scale_color_viridis_c(option = "D")
+    
+    ggsave(paste0("DotplotMyeloid/Dotplot_", cluster_name, "_MyeloidGenes.pdf"), plot = p,
+           width = 5.5, height = 5)
+}
+
+```
+
+
+#10 Dotplot visualization of myeloid Module scores in several HSPC subpopulations
+```{r}
+# create a list of seurat object subseted based on clusters above
+cluster_plot <- list(LTHSC = LTHSC, STHSC = STHSC, MPP2 = MPP2, MPP3 = MPP3, MPP4 = MPP4, HSPC = HSPC, MEP = MEP, HSC = HSC, MPP = MPP)
+
+# looping to generate a pdf of plot 1 by 1 and save them in a directory DotplotMyeloid
+for (cluster_name in names(cluster_plot)) {
+    cluster <- cluster_plot[[cluster_name]]
+    p <- DotPlot(cluster, cols = "RdYlBu",
+                 features = c("Neutrophil_Differentiation_score1", "Monocyte_Differentiation_score1"),
+                 group.by = "group") +
+        theme(axis.text.x = element_text(size = rel(0.8), angle = 90)) +
+        ggtitle(paste("Selected genes in", cluster_name)) +
+        theme(plot.title = element_text(hjust = 0.5)) +
+      scale_color_viridis_c(option = "D")
+    
+    ggsave(paste0("DotplotMyeloid/Dotplot_", cluster_name, "_MyeloidProgram.pdf"), plot = p,
+           width = 5.5, height = 6)
+}
+
+```
+
+#11 Dotplot visualization of TE silencers
+```{r}
+# create a list of seurat object subseted based on clusters above
+cluster_plot <- list(LTHSC = LTHSC, STHSC = STHSC, MPP2 = MPP2, MPP3 = MPP3, MPP4 = MPP4, HSPC = HSPC, MEP = MEP, HSC = HSC, MPP = MPP)
+
+# looping to generate a pdf of plot 1 by 1 and save them in a directory DotplotMyeloid
+for (cluster_name in names(cluster_plot)) {
+    cluster <- cluster_plot[[cluster_name]]
+    p <- DotPlot(cluster, cols = "RdYlBu", assay = "SCT",
+                 features = TEsilencers,
+                 group.by = "group") +
+        theme(axis.text.x = element_text(size = rel(0.8), angle = 90)) +
+        ggtitle(paste("TE silencer genes in", cluster_name)) +
+        theme(plot.title = element_text(hjust = 0.5)) +
+      scale_color_viridis_c(option = "D")
+    
+    ggsave(paste0("DotplotTEsilencers/Dotplot_", cluster_name, "_TErepresorGenes.pdf"), plot = p,
+           width = 12, height = 4)
+}
+
+#TE silencer modules
+for (cluster_name in names(cluster_plot)) {
+    cluster <- cluster_plot[[cluster_name]]
+    p <- DotPlot(cluster, cols = "RdYlBu",
+                 features = c("KRAB-ZFP1","Piwi_module_score1", "NuRD_module_score1", "DNMT_module_score1", "Hush_module_score1","OtherTEsilencers_module_score1"),
+                 group.by = "group") +
+        theme(axis.text.x = element_text(size = rel(0.8), angle = 90)) +
+        ggtitle(paste("TE silencer modules in", cluster_name)) +
+        theme(plot.title = element_text(hjust = 0.5)) +
+      scale_color_viridis_c(option = "D")
+    
+    ggsave(paste0("DotplotTEsilencers/Dotplot_", cluster_name, "_TErepresorModules.pdf"), plot = p,
+           width = 6, height = 8)
+}
+```
+
+# 12 Dotplot visualization of Inflammation and p53
+```{r}
+# create a list of seurat object subseted based on clusters above
+cluster_plot <- list(LTHSC = LTHSC, STHSC = STHSC, MPP2 = MPP2, MPP3 = MPP3, MPP4 = MPP4, HSPC = HSPC, MEP = MEP, HSC = HSC, MPP = MPP)
+for (cluster_name in names(cluster_plot)) {
+    cluster <- cluster_plot[[cluster_name]]
+    p <- DotPlot(cluster, cols = "RdYlBu",
+                 features = c("p53_target_module_score1", "Aging_HSC_Svendsen1", "ISG_score1", "Nucleic_acid_sensor_module_scores1", "Inflammation_module_score1", "Ribosomal_proteins_module_score1"),
+                 group.by = "group") +
+        theme(axis.text.x = element_text(size = rel(0.8), angle = 90)) +
+        ggtitle(paste("Inflammaging modules in", cluster_name)) +
+        theme(plot.title = element_text(hjust = 0.5)) +
+      scale_color_viridis_c(option = "D")
+    
+    ggsave(paste0("DotplotInflammaging/Dotplot_", cluster_name, "_InflammagingModules.pdf"), plot = p,
+           width = 6, height = 8)
+}
+```
+
+# 13 Dotplot visualization of Ribosomal protein genes module scores
+```{r}
+# create a list of seurat object subseted based on clusters above
+cluster_plot <- list(LTHSC = LTHSC, STHSC = STHSC, MPP2 = MPP2, MPP3 = MPP3, MPP4 = MPP4, HSPC = HSPC, MEP = MEP, HSC = HSC, MPP = MPP)
+for (cluster_name in names(cluster_plot)) {
+    cluster <- cluster_plot[[cluster_name]]
+    p <- DotPlot(cluster, cols = "RdYlBu",
+                 features = c("Ribosomal_proteins_module_score1"),
+                 group.by = "group") +
+        theme(axis.text.x = element_text(size = rel(0.8), angle = 90)) +
+        ggtitle(paste("Ribosomal proteins genes modules in", cluster_name)) +
+        theme(plot.title = element_text(hjust = 0.5)) +
+      scale_color_viridis_c(option = "D")
+    
+    ggsave(paste0("DotplotRibosomalGenes/Dotplot_", cluster_name, "_RibosomalProteinGenes.pdf"), plot = p,
+           width = 6, height = 8)
+}
+```
+
+## Dotplot visualization of TE
+```{r}
+# Erstmal, Nimmt nur die LT-HSC subset von CombinedCluster Seurat Object
+
+#Long_term_HSC_subset <- subset(CombinedCluster, CellType %in% c("LT-HSC"))
+
+# Danach plotte ich die Älterungs-und Entzundung Gene von allen Zellen nach Svendsen et al.
+#DefaultAssay(Long_term_HSC_subset) <- "SCT"
+
+
+DotPlotTE_LTHSC<-DotPlot(LTHSC, cols = "RdYlBu", assay = "SCT", features = c('gene-id "L1MA5A"; transcript-id "LINE/L1"','gene-id "X24-LINE"; transcript-id "LINE/L2"','gene-id "L1MA10"; transcript-id "LINE/L1"','gene-id "AmnSINE1"; transcript-id "SINE/5S-Deu-L2"', 'gene-id "IAPLTR2a"; transcript-id "LTR/ERVK"',  'gene-id "LTR88c"; transcript-id "LTR/Gypsy"',  'gene-id "MMTV-int"; transcript-id "LTR/ERVK"', 'gene-id "LTR75-1"; transcript-id "LTR/ERV1"', 'gene-id "hAT-1-Mam"; transcript-id "DNA/hAT-Tag1"','gene-id "UCON35"; transcript-id "DNA"'), group.by = "group")+
+  theme(axis.text.x=element_text(size=rel(0.8), angle=90))+
+  ggtitle("Selected TEs in LT-HSC")+
+  theme(plot.title = element_text(hjust=0.5)) +
+  scale_color_viridis_c(option = "D") +
+  theme(text = element_text(family = "Arial"))
+
+ggsave("2025-09-02_Dotplot_LT-HSC_TEs.pdf", DotPlotTE_LTHSC, device=cairo_pdf,width = 9, height = 7, units = c("in"))
+```
+
+## Dotplot visualization of Ribosomal genes
+```{r}
+ribo_lthsc<-DotPlot(LTHSC, cols = "RdYlBu", assay = "SCT", features = Ribosomegenes, group.by = "group")+
+  theme(axis.text.x=element_text(size=rel(0.8), angle=90))+
+  ggtitle("All ribosomal genes in LT-HSC")+
+  theme(plot.title = element_text(hjust=0.5)) +
+  scale_color_viridis_c(option = "D") +
+  theme(text = element_text(family = "Arial"))
+
+ggsave("2025-09-04_Dotplot_LT-HSC_Ribosomal_proteins_genes.pdf", ribo_lthsc, device=cairo_pdf,width = 15, height = 7, units = c("in"))
+```
+
+## Dotplot visualization of cell cycle score
+```{r}
+CC_lthsc<-DotPlot(CombinedCluster, cols = "RdYlBu", assay = "SCT", features = c("S.Score", "G2M.Score"), group.by = "CellType")+
+  theme(axis.text.x=element_text(size=rel(0.8), angle=90))+
+  ggtitle("Cell cycle phase score")+
+  theme(plot.title = element_text(hjust=0.5)) +
+  scale_color_viridis_c(option = "D") +
+  theme(text = element_text(family = "Arial"))
+CC_lthsc
+ggsave("2025-09-04_Dotplot_CellCycleScores.pdf", CC_lthsc, device=cairo_pdf,width = 5, height = 5, units = c("in"))
+```
+
+## Dotplot visualization of Haemp53 target genes in LT-HSC
+```{r}
+DotPlotp53Haem_LTHSC<-DotPlot(LTHSC, cols = "RdYlBu", assay = "SCT", features = c("Eda2r", "Phlda3", "Bax", "Zmat3", "Pvt1", "Sulf2", "Ccng1", "Bbc3", "Perp",
+  "Casp1", "Aen", "Tnfrsf10b", "Ctsd", "Ier5", "Pml"), group.by = "group")+
+  theme(axis.text.x=element_text(size=rel(0.8), angle=90))+
+  ggtitle("Haem P53 target genes in LT-HSC")+
+  theme(plot.title = element_text(hjust=0.5)) +
+  scale_color_viridis_c(option = "D") +
+  theme(text = element_text(family = "Arial"))
+
+ggsave("2025-09-02_Dotplot_LT-HSC_Haemp53.pdf", DotPlotp53Haem_LTHSC, device=cairo_pdf,width = 8, height = 4, units = c("in"))
+```
+
+## Dotplot visualization of downregulated genes from Phf6 KO mice
+```{r}
+DotPlotPhf6_downDEG_LTHSC<-DotPlot(LTHSC, cols = "RdYlBu", assay = "SCT", features = c("Fcho1", "Dsg2", "Abca4", "Aqp9", "Muc13", "Rgmb", "Mpzl1", "Gpr4", "Mmp14", "Spint2", "Nxpe5", "Sept1", "Dsc2", "Kdf1", "Plppr3", "Tacstd2", "Prtn3", "Cd72", "Hk3", "Enpp5", "Def8", "Epha1", "Ptges", "Krt18"), group.by = "group")+
+  theme(axis.text.x=element_text(size=rel(0.8), angle=90))+
+  ggtitle("Phf6KO down genes LT-HSC")+
+  theme(plot.title = element_text(hjust=0.5)) +
+  scale_color_viridis_c(option = "D") +
+  theme(text = element_text(family = "Arial"))
+
+ggsave("2025-11-17_DotPlot_Phf6_down_DEG_LTHSC.pdf", DotPlotPhf6_downDEG_LTHSC, device=cairo_pdf,width = 8, height = 4, units = c("in"))
+```
+
+
+## Dotplot visualization of Sun et al aging HSC up genes
+```{r}
+DotPlot_Sun_Aging_Up_LTHSC<-DotPlot(LTHSC, cols = "RdYlBu", assay = "SCT", features = c("Tdr9", "Gm106", "Gpr183", "Mab21l2", "Cldn5", "Osmr", "Klrb1c", "Matn4", "Plscr2", "Gabra4", "Ramp2", "Rorb", "Clca1", "Selp", "Bmpr1a", "Trpc1", "Nupr1", "Ccbe1", "Ripk4", "Gstm2", "Tm4sf1", "Clu"), group.by = "group")+
+  theme(axis.text.x=element_text(size=rel(0.8), angle=90))+
+  ggtitle("Sun Aging UP LT-HSC")+
+  theme(plot.title = element_text(hjust=0.5)) +
+  scale_color_viridis_c(option = "D") +
+  theme(text = element_text(family = "Arial"))
+
+ggsave("2025-11-17_DotPlot_Sun_Aging_Up_LTHSC_LTHSC.pdf", DotPlot_Sun_Aging_Up_LTHSC, device=cairo_pdf,width = 8, height = 4, units = c("in"))
+```
+
+
+#13 UMAP projected module scores
+```{r}
+p1<-FeaturePlot(CombinedCluster,
+            features = "HaemP53_Module_Score1", reduction = "umap",
+            max.cutoff = 0.2, min.cutoff = -0.2,
+            pt.size = 0.1, 
+            split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-0.2, 0.2))
+
+p2 <- lapply(p1, function (x) x + fix.sc)
+p3<-CombinePlots(p2)
+
+ggsave("Haem_P53_score.pdf", p3, device=cairo_pdf,width = 12, height = 10, units = c("in"))
+```
+
+# 14 Cluster markers
+```{r}
+# Finden Sie Markers von jeden Kluster und bericht nur die Positive markers
+#markersPreCompute <- PrepSCTFindMarkers(CombinedCluster)
+#all_markers <- FindAllMarkers(markersPreCompute,
+        #                      min.pct = 0.25,
+         #                     only.pos = T,
+          #                    min.diff.pct = 0.25,
+           #                   logfc.threshold = 0.25)
+
+#write.xlsx(all_markers, "DEG_all_cluster_markers.xlsx", col.names =TRUE, row.names =TRUE)
+#WriteXLS::WriteXLS(all_markers, "DEG_all_cluster_markers.xlsx", col.names =TRUE, row.names =TRUE)
+```
+
+#15 Plot top cluster markers
+```{r}
+######## Visualize top 10 markers
+all_markers %>%
+  group_by(cluster) %>%
+  dplyr::filter(avg_log2FC > 1.6) %>%
+  dplyr::filter(p_val_adj < 0.01) %>%
+  dplyr::filter(pct.1 > 0.5) %>%
+  slice_head(n = 10) %>%
+  ungroup() -> top
+
+heatmap_marker_Gene_top10<-DoHeatmap(subset(CombinedCluster, downsample = 200), features = top$gene, size = 3, draw.lines = "TRUE", ) + theme(axis.text.y = element_text(size = 5, face = "italic", color = "black")) #+ scale_fill_viridis(option = "inferno", direction = 1)
+
+ggsave("2025-10-29_Top10-cluster-markers.pdf", heatmap_marker_Gene_top10, device=cairo_pdf,width = 8, height = 10, units = c("in"))
+
+```
+
+
+```{r}
+# Assign colors to clusters
+cluster_levels <- levels(CombinedCluster)
+cluster_colors <- setNames(colors[seq_along(cluster_levels)], cluster_levels)
+
+# Create the heatmap with cluster color codes
+heatmap_marker_Gene_top10 <- DoHeatmap(
+  subset(CombinedCluster, downsample = 200), 
+  features = top$gene, 
+  size = 3, 
+  draw.lines = TRUE, 
+  group.colors = cluster_colors
+) + theme(
+  axis.text.y = element_text(size = 5, face = "italic", color = "black")
+)
+
+ggsave("2025-10-29_Top10-cluster-markers.pdf", heatmap_marker_Gene_top10, device=cairo_pdf,width = 8, height = 10, units = c("in"))
+```
+
+
+#16 Try AUCell for calculating module scores
+```{r}
+library(AUCell)
+exprMatrix <- GetAssayData(CombinedCluster, layer = "data")  # extract normalized log expression matrix
+cells_rankings <- AUCell_buildRankings(exprMatrix, nCores = 10, plotStats = TRUE) # build gene reankings
+gene_set_list <- list(KRAB_ZFP_AUCell= KRAB_ZFP, PIWI_AUCell= PIWI, HUSH_AUCell=Hush, NuRD_AUCell= NuRD, DNMT_AUCell= DNMTs, OtherTEsilencersAUCell= OtherTESilencers, NeutrophilDiffAUCell = neudifgenes, MonocyteDiffAUCell = monodifgenes, InflammationAUCell = inflam, NucleicAcidSensorsAUCell = NucSensors, InterferonStimGenesAUCell= isg_genes, InterferomeAUCell= irg_genes, AgingAUCell= aging_markers_hsc, p53AUCell = p53targetgenes, ribosomeAUCell = Ribosomegenes) 
+
+cells_AUC <- AUCell_calcAUC(gene_set_list, cells_rankings)
+CombinedCluster$KRAB_ZFP_AUC <- as.numeric(getAUC(cells_AUC)["KRAB_ZFP_AUCell", ])
+CombinedCluster$PIWI_AUC <- as.numeric(getAUC(cells_AUC)["PIWI_AUCell", ])
+CombinedCluster$HUSH_AUC <- as.numeric(getAUC(cells_AUC)["HUSH_AUCell", ])
+CombinedCluster$NuRD_AUC <- as.numeric(getAUC(cells_AUC)["NuRD_AUCell", ])
+CombinedCluster$DNMT_AUC <- as.numeric(getAUC(cells_AUC)["DNMT_AUCell", ])
+CombinedCluster$OtherTESilencer_AUC <- as.numeric(getAUC(cells_AUC)["OtherTEsilencersAUCell", ])
+CombinedCluster$NeutrophilDiff_AUC <- as.numeric(getAUC(cells_AUC)["NeutrophilDiffAUCell", ])
+CombinedCluster$MonocyteDiff_AUC <- as.numeric(getAUC(cells_AUC)["MonocyteDiffAUCell", ])
+CombinedCluster$Inflammation_AUC <- as.numeric(getAUC(cells_AUC)["InflammationAUCell", ])
+CombinedCluster$NucleicAcidSensors_AUC <- as.numeric(getAUC(cells_AUC)["NucleicAcidSensorsAUCell", ])
+CombinedCluster$ISG_AUC <- as.numeric(getAUC(cells_AUC)["InterferonStimGenesAUCell", ])
+CombinedCluster$IRG_AUC <- as.numeric(getAUC(cells_AUC)["InterferomeAUCell", ])
+CombinedCluster$Aging_AUC <- as.numeric(getAUC(cells_AUC)["AgingAUCell", ])
+CombinedCluster$p53_AUC <- as.numeric(getAUC(cells_AUC)["p53AUCell", ])
+CombinedCluster$ribosome_AUC <- as.numeric(getAUC(cells_AUC)["ribosomeAUCell", ])
+```
+
+# 17 Subsetting again into HSPC subclusters
+```{r}
+HSPC<- subset(CombinedCluster, CellType %in% c("LT-HSC", "ST-HSC", "MPP2", "MPP3", "MPP4/LMPP"))
+LTHSC<- subset(CombinedCluster, CellType %in% c("LT-HSC"))
+STHSC<- subset(CombinedCluster, CellType %in% c("ST-HSC"))
+MPP2<- subset(CombinedCluster, CellType %in% c("MPP2"))
+MPP3<- subset(CombinedCluster, CellType %in% c("MPP3"))
+MPP4<- subset(CombinedCluster, CellType %in% c("MPP4/LMPP"))
+MEP<- subset(CombinedCluster, CellType %in% c("MEP"))
+HSC<-subset(CombinedCluster, CellType %in% c("LT-HSC", "ST-HSC"))
+MPP<-subset(CombinedCluster, CellType %in% c("MPP2", "MPP3", "MPP4/LMPP"))
+```
+
+#18 PLotting AUCell scores for LT-HSC clusters
+```{r}
+#TE silencer modules
+cluster_plot <- list(LTHSC = LTHSC, STHSC = STHSC, MPP2 = MPP2, MPP3 = MPP3, MPP4 = MPP4, HSPC = HSPC, MEP = MEP, HSC = HSC, MPP = MPP)
+for (cluster_name in names(cluster_plot)) {
+    cluster <- cluster_plot[[cluster_name]]
+    p <- DotPlot(cluster, cols = "RdYlBu",
+                 features = c("KRAB_ZFP_AUC", "PIWI_AUC", "HUSH_AUC", "NuRD_AUC", "DNMT_AUC", "OtherTESilencer_AUC",
+                              "NeutrophilDiff_AUC", "MonocyteDiff_AUC", "Inflammation_AUC", "NucleicAcidSensors_AUC", 
+                              "ISG_AUC", "IRG_AUC", "Aging_AUC", " p53_AUC"),
+                 group.by = "group") +
+        theme(axis.text.x = element_text(size = rel(0.8), angle = 90)) +
+        ggtitle(paste("AUC scores in", cluster_name)) +
+        theme(plot.title = element_text(hjust = 0.5)) +
+      scale_color_viridis_c(option = "D")
+    
+    ggsave(paste0("DotplotAUC/Dotplot_", cluster_name, "_AUC.pdf"), plot = p,
+           width = 6, height = 8)
+}
+```
+
+```{r}
+VlnPlot(LTHSC, features ="KRAB_ZFP_AUC", group.by = "group", pt.size = 0) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + ggplot2::scale_fill_manual(values = c("#e3d132","#5fc26f", "#A6CEE3", "#600078", "#E3751C", "#99bd4b", "#784620", "#edbbe3","#E31A1C","#1F78B4","#eb5252", "#FDBF6F","#526317", "#33A02C","#ae5e93")) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old control", "Young control"), c("Old alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.format") + scale_y_continuous(limits = c(0, 0.2))
+#ggsave("2025-06-13_NucleicAcidSensors.pdf", violinplot, device=cairo_pdf,width = 20, height = 6, units = c("in"))
+```
+
+#4545454
+```{r}
+VlnPlot(LTHSC, features ="Inflammation_module_score1", assay = "SCT", group.by = "group", pt.size = 0) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + ggplot2::scale_fill_manual(values = c("#e3d132","#5fc26f", "#A6CEE3", "#600078")) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old control", "Young control"), c("Old alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.format") + scale_y_continuous(limits = c(0, 0.3))
+```
+
+## Violin plot for ribosomal proteins module scores
+```{r}
+ribosomalViolin<-VlnPlot(LTHSC, features ="Ribosomal_proteins_module_score1", assay = "SCT", group.by = "group", pt.size = 0) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + ggplot2::scale_fill_manual(values = c("#e3d132","#5fc26f", "#A6CEE3", "#600078")) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old control", "Young control"), c("Old alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.format") + scale_y_continuous(limits = c(0, 4))
+
+ggsave("2025-09-07_ribosomal_protein_genes_module_score.pdf", ribosomalViolin, device=cairo_pdf,width = 6, height = 7, units = c("in"))
+```
+
+## Violin plot for inflamation proteins module scores
+```{r}
+inflamationViolin<-VlnPlot(LTHSC, features ="Inflammation_module_score1", assay = "SCT", group.by = "group", pt.size = 0) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + ggplot2::scale_fill_manual(values = c("#e3d132","#5fc26f", "#A6CEE3", "#600078")) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old control", "Young control"), c("Old alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.format") + scale_y_continuous(limits = c(0, 0.35))
+
+ggsave("2025-09-07_inflamation_module_score.pdf", inflamationViolin, device=cairo_pdf,width = 6, height = 7, units = c("in"))
+```
+
+## Violin plot for aging module scores
+```{r}
+agingViolin<-VlnPlot(LTHSC, features ="Aging_HSC_Svendsen1", assay = "SCT", group.by = "group", pt.size = 0) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + ggplot2::scale_fill_manual(values = c("#e3d132","#5fc26f", "#A6CEE3", "#600078")) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old control", "Young control"), c("Old alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.format") + scale_y_continuous(limits = c(0, 0.6))
+
+ggsave("2025-09-07_aging_module_score.pdf", agingViolin, device=cairo_pdf,width = 6, height = 7, units = c("in"))
+```
+
+
+## Violin plot for inflamation proteins module scores
+```{r}
+isgViolin<-VlnPlot(LTHSC, features ="ISG_score1", assay = "SCT", group.by = "group", pt.size = 0) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + ggplot2::scale_fill_manual(values = c("#e3d132","#5fc26f", "#A6CEE3", "#600078")) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old control", "Young control"), c("Old alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.format") + scale_y_continuous(limits = c(0, 0.6))
+
+ggsave("2025-09-07_isg_module_score.pdf", isgViolin, device=cairo_pdf,width = 6, height = 7, units = c("in"))
+```
+
+
+## Violin plot for Haem P53 target gene module scores in total LSK
+```{r}
+haemP53lskViolin<-VlnPlot(CombinedCluster, features ="HaemP53_Module_Score1", assay = "SCT", group.by = "group", pt.size = 0) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + ggplot2::scale_fill_manual(values = c("#e3d132","#5fc26f", "#A6CEE3", "#600078")) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old control", "Young control"), c("Old alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.format") + scale_y_continuous(limits = c(0, 2))
+
+ggsave("2025-11-16_Haem_p53_LSK_module_score.pdf", haemP53lskViolin, device=cairo_pdf,width = 6, height = 7, units = c("in"))
+```
+
+
+## Violin plot for nucleic acid sensing modules
+```{r}
+nucViolin<-VlnPlot(LTHSC, features ="Nucleic_acid_sensor_module_scores1", assay = "SCT", group.by = "group", pt.size = 0) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + ggplot2::scale_fill_manual(values = c("#e3d132","#5fc26f", "#A6CEE3", "#600078")) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old control", "Young control"), c("Old alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.format") + scale_y_continuous(limits = c(0, 0.8))
+
+ggsave("2025-09-07_nucleic_acid_module_score.pdf", nucViolin, device=cairo_pdf,width = 6, height = 7, units = c("in"))
+```
+
+```{r}
+Hmgb2Violin<-VlnPlot(LTHSC, features ="Hmgb2", assay = "SCT", group.by = "group", pt.size = 0) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + ggplot2::scale_fill_manual(values = c("#e3d132","#5fc26f", "#A6CEE3", "#600078")) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old control", "Young control"), c("Old alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.format") + scale_y_continuous(limits = c(0, 5))
+
+ggsave("2025-09-07_Hmgb2_violin.pdf", Hmgb2Violin, device=cairo_pdf,width = 6, height = 7, units = c("in"))
+```
+
+
+
+```{r}
+DotPlot(HSPC, cols = "RdYlBu", features = c("KRAB_ZFP_AUC", "PIWI_AUC", "HUSH_AUC", "NuRD_AUC", "DNMT_AUC", "OtherTESilencer_AUC", "NeutrophilDiff_AUC", "MonocyteDiff_AUC", "Inflammation_AUC", "NucleicAcidSensors_AUC", "ISG_AUC", "IRG_AUC", "Aging_AUC", " p53_AUC"), group.by = "CellType", split.by = "group")+
+  theme(axis.text.x=element_text(size=rel(0.8), angle=90))+
+  ggtitle("Selected genes dotplot")+
+  theme(plot.title = element_text(hjust=0.5)) +
+  scale_color_viridis_c(option = "D") +
+  theme(text = element_text(family = "Arial"))
+```
+
+## Function for plotting any cluster and any features into Violin plot
+```{r}
+plot_module_score <- function(
+  seurat_obj,
+  cluster_name,
+  module_feature,
+  group_by = "group",
+  y_limit = c(0, 0.35),
+  comparisons = list(
+    c("Young alcohol", "Young control"),
+    c("Old control", "Young control"),
+    c("Old alcohol", "Young control"),
+    c("Old alcohol", "Old control")
+  ),
+  colors = c("#e3d132", "#5fc26f", "#A6CEE3", "#bf99ff"),
+  width = 6,
+  height = 7,
+  output_dir = "plots"
+) {
+
+  if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+  timestamp <- format(Sys.Date(), "%Y-%m-%d")
+
+  plots_list <- list()
+
+  for (cl in cluster_name) {
+    if (cl %in% names(table(Idents(seurat_obj)))) {
+      seurat_sub <- subset(seurat_obj, idents = cl)
+
+      p <- VlnPlot(
+        seurat_sub,
+        features = module_feature,
+        assay = "SCT",
+        group.by = group_by,
+        pt.size = 0
+      ) +
+        stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow",
+                     position = position_dodge(width = 0.9)) +
+        geom_boxplot(width = 0.1, color = "black", alpha = 0.5,
+                     position = position_dodge(width = 0.9)) +
+        scale_fill_manual(values = colors) +
+        stat_compare_means(comparisons = comparisons, method = "wilcox",
+                           p.adjust.method = "fdr", label = "p.format") +
+        scale_y_continuous(limits = y_limit) +
+        ggtitle(paste0(cl, " - ", module_feature))
+
+      file_name <- paste0(timestamp, "_", cl, "_", module_feature, ".pdf")
+      file_path <- file.path(output_dir, file_name)
+      ggsave(file_path, p, device = cairo_pdf, width = width, height = height, units = "in")
+
+      message("✅ Plot saved to: ", file_path)
+      plots_list[[cl]] <- p
+    } else {
+      warning("⚠️ Cluster ", cl, " not found in Seurat object.")
+    }
+  }
+
+  return(plots_list)
+}
+
+```
+
+##ploting using the function
+```{r}
+seuratclust<-CombinedCluster %>% levels()
+plots <- plot_module_score(
+  seurat_obj = CombinedCluster,
+  cluster_name = c("LT-HSC", "ST-HSC", "MPP2", "MPP3", "MPP4", "MEP", "GMP", "MDP", "CLP"),
+  module_feature = c("Lin28b", "Clu", ),
+  y_limit = c(0, 3)   # <-- Adjusted Y-axis limit here
+)
+
+```
+
+```{r}
+data <- FetchData(LTHSC, vars = c("Cdkn1a", "group"))
+
+# compute median per group
+library(dplyr)
+medians <- data %>%
+  group_by(group) %>%
+  summarise(median_p21 = median(Cdkn1a, na.rm = TRUE))
+
+medians
+```
+
+#19 Differential expression analysis in LT-HSC
+## Dataset Vorbereitung vor Gene und TE Expressionsanalyse
+```{r}
+test.data <- CombinedCluster
+#Idents(test.data) <- "seurat_annotations"
+test.data$seurat_annotations <- Idents(test.data)
+
+# Hier kombiniere ich Old Alcohol RY22 und Old Alcohol 2 RY23 Samples zu Old Alcohol Grup.
+
+test.data$celltype.stim <- paste(test.data$seurat_annotations,test.data$group, sep = "_")
+Idents(test.data) <- "celltype.stim"
+test.data<-PrepSCTFindMarkers(test.data)
+
+```
+
+```{r}
+#Idents(test.data) <- "seurat_annotations"
+CombinedCluster$seurat_annotations <- Idents(CombinedCluster)
+
+# Hier kombiniere ich Old Alcohol RY22 und Old Alcohol 2 RY23 Samples zu Old Alcohol Grup.
+
+CombinedCluster$celltype.stim <- paste(CombinedCluster$seurat_annotations,CombinedCluster$group, sep = "_")
+Idents(CombinedCluster) <- "celltype.stim"
+CombinedCluster<-PrepSCTFindMarkers(CombinedCluster)
+
+```
+
+
+## DEG Analyze
+```{r}
+# Hier analyziere ich die DEGs von Old Alcohol gegen Old Control beim LT-HSC Cluster
+
+options(future.globals.maxSize = 26000 * 1024^2) # Diese Linie ist fur den Arbeitspeicher RAM vergrossern. Andernsfall das Kode arbeitet nicht
+
+OAvsOC<- FindMarkers(test.data, ident.1 = "LT-HSC_Old alcohol", ident.2 = "LT-HSC_Old control", test.use = "t", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Young Alcohol gegen Young control beim LT-HSC Cluster
+YAvsYC <- FindMarkers(test.data, ident.1 = "LT-HSC_Young alcohol", ident.2 = "LT-HSC_Young control", test.use = "t", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Control gegen Young Control beim LT-HSC Cluster
+OCvsYC<- FindMarkers(test.data, ident.1 = "LT-HSC_Old control", ident.2 = "LT-HSC_Young control", test.use = "t", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Alcohol gegen Young Control beim LT-HSC Cluster
+OAvsYC<- FindMarkers(test.data, ident.1 = "LT-HSC_Old alcohol", ident.2 = "LT-HSC_Young control", test.use = "t", verbose = FALSE)
+
+# Hier analyziere ich DEGs von YA gegen OC group
+YAvsOC<- FindMarkers(test.data, ident.1 = "LT-HSC_Young alcohol", ident.2 = "LT-HSC_Old control", test.use = "t", verbose = FALSE)
+
+OAvsOC$genes<-rownames(OAvsOC) # extract gene names and add into a new column
+YAvsYC$genes<-rownames(YAvsYC) # extract gene names and add into a new column
+OCvsYC$genes<-rownames(OCvsYC) # extract gene names and add into a new column
+OAvsYC$genes<-rownames(OAvsYC) # extract gene names and add into a new column
+YAvsOC$genes<-rownames(YAvsOC) # extract gene names and add into a new column
+xlsx::write.xlsx(OAvsOC, "OAvsOC_LT-HSC_DEG.xlsx") # save into an Excel file
+xlsx::write.xlsx(YAvsYC, "YAvsYC_LT-HSC_DEG.xlsx")
+xlsx::write.xlsx(OCvsYC, "OCvsYC_LT-HSC_DEG.xlsx")
+xlsx::write.xlsx(OAvsYC, "OAvsYC_LT-HSC_DEG.xlsx")
+xlsx::write.xlsx(YAvsOC, "YAvsOC_LT-HSC_DEG.xlsx")
+```
+
+

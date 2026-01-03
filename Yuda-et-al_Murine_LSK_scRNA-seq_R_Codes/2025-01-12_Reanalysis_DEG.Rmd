@@ -1,0 +1,2589 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+title: "Re-analysis of Differential Expressed Genes"
+output:
+  html_notebook: default
+  pdf_document: default
+editor_options:
+  chunk_output_type: inline
+---
+Author: Ridzky Yuda, Ph.D.
+Datum: 12. Januar 2025
+# 1 Installation von die gebrauchte Pakete
+```{r}
+#remotes::install_github("satijalab/seurat", "seurat5", quiet = TRUE)
+#install.packages("sctransform")
+#install.packages("harmony")
+#BiocManager::install("harmony", version = "3.16")
+#BiocManager::install("glmGamPoi")
+#BiocManager::install("clustermole")
+#install.packages("pathfindR")
+#BiocManager::install("dittoSeq")
+#BiocManager::install("formatR")
+#BiocManager::install("ComplexHeatmap")
+#BiocManager::install("fgsea")
+#install.packages("msigdbr")
+#devtools::install_github("jhrcook/readgmt")
+#BiocManager::install("AUCell")
+#BiocManager::install("decoupleR")
+#BiocManager::install("UCell")
+#BiocManager::install("ReactomePA")
+#install.packages("ggVennDiagram")
+
+```
+
+# 2 Paket Aktivierung
+```{r}
+library(ggVennDiagram)
+library(ReactomePA)
+library(UCell)
+library(decoupleR)
+library(readgmt)
+library(stringr)
+library(RColorBrewer)
+library(Seurat)
+library(patchwork)
+library(sctransform)
+library(harmony)
+library(ggplot2)
+library(patchwork)
+library(tidyverse)
+library(cowplot)
+library(dplyr)
+library(glmGamPoi)
+library(ggsci)
+library(RCurl)
+library(AnnotationHub)
+library(ensembldb)
+library(dittoSeq)
+library(formatR)
+library(ComplexHeatmap)
+library(circlize)
+library(fgsea)
+library(msigdbr)
+library(dblyr)
+library(SingleR)
+library(celldex)
+```
+
+# 3 Laden die neueste geklustert Seuratobjek mit neuester Annotation
+```{r}
+CombinedCluster <- readRDS("~/scratch4-mjung9/ryuda1/RY27_LSK_scRNA-seq_scTE/2024-10-02_Cluster_Annotations/combined3Cluster.Seurat.rds")
+```
+
+#4 Fügen die CellType nach Metadaten von Seurat Objekt hinzu
+```{r}
+labels <-c("LT-HSC", 
+           "MPP4/LMPP", 
+           "ST-HSC", 
+           "CLP", 
+           "MPP4/LMPP", 
+           "ST-HSC", 
+           "CLP", 
+           "Unknown", 
+           "ST-HSC", 
+           "CLP", 
+           "MDP", 
+           "MPP3", 
+           "MPP2",
+           "MPP3",
+           "B cell prog",
+           "Baso-Mast-Prog",
+           "ST-HSC",
+           "MDP",
+           "B cell prog",
+           "pDC/DC-prog",
+           "T cell prog",
+           "ST-HSC",
+           "MPP3",
+           "Baso-Mast-Prog",
+           "T cell prog",
+           "MEP",
+           "B cell prog",
+           "B cell prog",
+           "B cell prog",
+           "GMP",
+           "pDC/DC-prog",
+           "CDP")
+
+# create a new column in metadata
+CombinedCluster$CellType <- CombinedCluster$seurat_clusters
+
+# replace cluster number by cell type
+levels(CombinedCluster$CellType) <-labels
+```
+
+#5 Visualize UMAP from the Seurat object
+```{r}
+#CombinedCluster <- factor(test.data$sample, levels = c("Young control", "Young alcohol", "Old control", "Old alcohol1", "Old alcohol2"))
+
+colors <- c("#e3d132","#99bd4b","#5fc26f","#1F78B4","#A6CEE3", "#E31A1C","#E3751C","#600078", "#33A02C", "#FDBF6F", "#526317", "#ae5e93", "#784620", "#edbbe3", "#eb5252")
+
+All<-print(DimPlot(object = CombinedCluster, 
+        reduction = "umap", 
+        label = T,
+        pt.size = 1,
+        repel = T,
+        label.size = 4,
+        cols = colors)) + ggtitle("Global") +
+  theme(plot.title = element_text(hjust=0.5))
+All
+ggsave("2024-10-04_All_samples_UMAP.pdf", All, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+```
+
+#6 Aging Module Score Module Calculation
+```{r}
+# aging HSC marker genes
+aging_markers_table<-readxl::read_xlsx('AgingSignature2.xlsx') %>% as.data.frame() #%>% dplyr::filter(Log2FC > 0)
+aging_markers_hsc<-aging_markers_table$Gene
+
+aging_markers_hsc<-aging_markers_hsc[!is.na(aging_markers_hsc)]
+
+CombinedClusterWithAgingModule<- AddModuleScore(CombinedCluster, features=list(aging_markers_hsc), name='Aging_HSC_Marker-Score-Svendsen')
+
+CombinedClusterWithAgingModule@meta.data$group <- factor(x = CombinedClusterWithAgingModule@meta.data$group, levels = c("Young control", "Young alcohol", "Old control", "Old alcohol")) # relevel group order
+
+
+#YC_with_AS<-subset(CombinedClusterWithAgingModule, group %in% "Young control")
+#ycAS<-FeaturePlot(YC_with_AS,
+ #           features = "aging_hsc_markers_score1", reduction = "umap",
+  #          max.cutoff = 0.3, min.cutoff = -0.4,
+   #         pt.size = 0.6,
+    #        label = FALSE, repel = TRUE) +
+     #       scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")))
+
+#YA_with_AS<-subset(CombinedClusterWithAgingModule, group %in% "Young alcohol")
+#yaAS<-FeaturePlot(YA_with_AS,
+ #           features = "aging_hsc_markers_score1", reduction = "umap",
+  #          max.cutoff = 0.3, min.cutoff = -0.4,
+   #         pt.size = 0.6,
+    #        label = FALSE, repel = TRUE) +
+     #       scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")))
+
+#OC_with_AS<-subset(CombinedClusterWithAgingModule, group %in% "Old control")
+#ocAS<-FeaturePlot(OC_with_AS,
+ #           features = "aging_hsc_markers_score1", reduction = "umap",
+  #          max.cutoff = 0.3, min.cutoff = -0.4,
+   #         pt.size = 0.6,
+    #        label = FALSE, repel = TRUE) +
+     #       scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")))
+
+#OA_with_AS<-subset(CombinedClusterWithAgingModule, group %in% "Old alcohol")
+#oaAS<-FeaturePlot(OA_with_AS,
+ #           features = "aging_hsc_markers_score1", reduction = "umap",
+  #          max.cutoff = 0.3, min.cutoff = -0.4,
+   #         pt.size = 0.6,
+    #        label = FALSE, repel = TRUE) +
+     #       scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")))
+
+LTHSC<-subset(CombinedClusterWithAgingModule, CellType %in% "LT-HSC")
+HSC<-subset(CombinedClusterWithAgingModule, CellType %in% c("LT-HSC", "ST-HSC"))
+
+LTHSCviolin<-VlnPlot(LTHSC, features=c('Aging_HSC_Marker-Score-Svendsen1'), group.by = 'group', pt.size=0.3)+stat_summary(fun.y = mean, geom='point', size = 10, colour = "black", shape = 95)
+
+agingscore<-LTHSC@meta.data$`Aging_HSC_Marker-Score-Svendsen1`
+group<-LTHSC@meta.data$group
+
+agingscoreextracted<-data.frame(group, agingscore)
+xlsx::write.xlsx(agingscoreextracted, "2025-02-7_AgingScore-LT-HSC.xlsx") # save into an Excel file
+
+  
+
+#ggsave("2025-01-30_AgingScoreUMAP_YC.pdf", ycAS, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+#ggsave("2025-01-30_AgingScoreUMAP_YA.pdf", yaAS, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+#ggsave("2025-01-30_AgingScoreUMAP_OC.pdf", ocAS, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+#ggsave("2025-01-30_AgingScoreUMAP_OA.pdf", oaAS, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+ggsave("2025-02-07_AgingScoreViolinPlot-LT-HSC_OA.pdf", LTHSCviolin, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+
+```
+
+# UMAP aging scores
+```{r}
+p1<-FeaturePlot(CombinedClusterWithAgingModule,
+            features = "Aging_HSC_Marker-Score-Svendsen1", reduction = "umap",
+            max.cutoff = 0.2, min.cutoff = -0.2,
+            pt.size = 0.6, 
+            split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-0.2, 0.2))
+
+p2 <- lapply(p1, function (x) x + fix.sc)
+agingscoreallumap<-CombinePlots(p2)
+
+ggsave("2025-02-07_AgingScoreUMAP-LT-HSC.pdf", agingscoreallumap, device=cairo_pdf,width = 12, height = 10, units = c("in"))
+
+#p1 <- FeaturePlot(pbmc_small, features = c("PPBP", "IGLL5", "SDPR"), combine = FALSE )
+#fix.sc <- scale_color_gradientn( colours = c('lightgrey', 'blue'),  limits = c(1, 8))
+```
+
+
+
+```{r}
+
+#signatures<- list(
+  #            HALLMARK_INTERFERON_ALPHA_RESPONSE = #mh_genesets$HALLMARK_INTERFERON_ALPHA_RESPONSE,
+   #           HALLMARK_INTERFERON_GAMMA_RESPONSE = #mh_genesets$HALLMARK_INTERFERON_GAMMA_RESPONSE,
+    #          HALLMARK_TNFA_SIGNALING_VIA_NFKB = #mh_genesets$HALLMARK_TNFA_SIGNALING_VIA_NFKB,
+     #         REACTOME_INTERFERON_SIGNALING = #reactome_genesets$REACTOME_INTERFERON_SIGNALING,
+#              REACTOME_TNFR1_INDUCED_NF_KAPPA_B_SIGNALING_PATHWAY = reactome_genesets$REACTOME_TNFR1_INDUCED_NF_KAPPA_B_SIGNALING_PATHWAY,
+#              REACTOME_REGULATION_OF_ENDOGENOUS_RETROELEMENTS = reactome_genesets$REACTOME_REGULATION_OF_ENDOGENOUS_RETROELEMENTS,
+ #             REACTOME_CELLULAR_SENESCENCE = reactome_genesets$REACTOME_CELLULAR_SENESCENCE,
+  #            REACTOME_INNATE_IMMUNE_SYSTEM = reactome_genesets$REACTOME_INNATE_IMMUNE_SYSTEM,
+   #           REACTOME_CELL_CYCLE = reactome_genesets$REACTOME_CELL_CYCLE,
+    #          REACTOME_EPIGENETIC_REGULATION = reactome_genesets$REACTOME_EPIGENETIC_REGULATION_OF_GENE_EXPRESSION,
+     #         GOBP_RESPONSE_TO_BACTERIUM_LIPOPROTEIN = gobp_genesets$GOBP_RESPONSE_TO_BACTERIAL_LIPOPROTEIN,
+      #        MARROW_HEMATOPOIETIC_STEM_CELL_AGEING = m8_genesets$TABULA_MURIS_SENIS_MARROW_HEMATOPOIETIC_STEM_CELL_AGEING,
+       #        MARROW_HEMATOPOIETIC_PRECURSOR_AGEING = m8_genesets$TABULA_MURIS_SENIS_MARROW_HEMATOPOIETIC_PRECURSOR_CELL_AGEING,
+        #      REACTOME_PRC2_METHYLATES_HISTONES_AND_DNA = reactome_genesets$REACTOME_PRC2_METHYLATES_HISTONES_AND_DNA,
+         #     RUNX1_MEG_DIFF = reactome_genesets$REACTOME_RUNX1_REGULATES_GENES_INVOLVED_IN_MEGAKARYOCYTE_DIFFERENTIATION_AND_PLATELET_FUNCTION,
+          #    DDR_TELOMERE_STRESS = reactome_genesets$REACTOME_DNA_DAMAGE_TELOMERE_STRESS_INDUCED_SENESCENCE
+              
+              
+)
+
+seurat.object<-AddModuleScore_UCell(CombinedClusterWithAgingModule, features = signatures, name = NULL)
+```
+
+
+```{r}
+DotPlot<-print(DotPlot(CombinedCluster, cols = "RdYlBu", assay = "RNA", features = c("Procr", "Pdzk1ip1","Ly6a", "Klf1", "Car1", "Dntt", "Cd34", "Satb1", "Mpo", "Calr", "Pf4", "Sdpr", "Cd63", "Cpa3", "Kit"), group.by = "CellType"))+
+  theme(axis.text.x=element_text(size=rel(0.8), angle=90))+
+  ggtitle("Markers gene expression in different clusters")+
+  theme(plot.title = element_text(hjust=0.5))
+#ggsave("2024-10-04_Dotplot_LT-HSC_TEs.pdf", DotPlotLTHSC_TE, device=cairo_pdf,width = 15, height = 7, units = c("in"))
+```
+
+
+#8 Differenzielle Expressionsanalyse des LT-HSC-Clusters
+
+#Dataset Vorbereitung vor Gene und TE Expressionsanalyse
+```{r}
+options(future.globals.maxSize = 26000 * 1024^2) # Diese Linie ist fur den Arbeitspeicher RAM vergrossern. Andernsfall das Kode arbeitet nicht
+
+#Idents(CombinedCluster) <- "seurat_annotations"
+CombinedCluster$seurat_annotations <- Idents(CombinedCluster)
+
+# Hier kombiniere ich Old Alcohol RY22 und Old Alcohol 2 RY23 Samples zu Old Alcohol Grup.
+
+CombinedCluster$celltype.stim <- paste(CombinedCluster$seurat_annotations,CombinedCluster$group, sep = "_")
+Idents(CombinedCluster) <- "celltype.stim"
+CombinedCluster<-PrepSCTFindMarkers(CombinedCluster)
+
+```
+
+
+#a. LT-HSC DEG Analysis using Wilcoxon
+```{r}
+# Hier analyziere ich die DEGs von Old Alcohol gegen Old Control beim LT-HSC Cluster mit Wilcoxon-Rank Sum Test
+
+options(future.globals.maxSize = 26000 * 1024^2) # Diese Linie ist fur den Arbeitspeicher RAM vergrossern. Andernsfall das Kode arbeitet nicht
+
+OAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "LT-HSC_Old alcohol", ident.2 = "LT-HSC_Old control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Young Alcohol gegen Young control beim LT-HSC Cluster
+YAvsYCWilcox <- FindMarkers(CombinedCluster, ident.1 = "LT-HSC_Young alcohol", ident.2 = "LT-HSC_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Control gegen Young Control beim LT-HSC Cluster
+OCvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "LT-HSC_Old control", ident.2 = "LT-HSC_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Alcohol gegen Young Control beim LT-HSC Cluster
+OAvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "LT-HSC_Old alcohol", ident.2 = "LT-HSC_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von YA gegen OC group
+YAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "LT-HSC_Young alcohol", ident.2 = "LT-HSC_Old control", test.use = "wilcox", verbose = FALSE)
+
+OAvsOCWilcox$genes<-rownames(OAvsOCWilcox) # extract gene names and add into a new column
+YAvsYCWilcox$genes<-rownames(YAvsYCWilcox) # extract gene names and add into a new column
+OCvsYCWilcox$genes<-rownames(OCvsYCWilcox) # extract gene names and add into a new column
+OAvsYCWilcox$genes<-rownames(OAvsYCWilcox) # extract gene names and add into a new column
+YAvsOCWilcox$genes<-rownames(YAvsOCWilcox) # extract gene names and add into a new column
+xlsx::write.xlsx(OAvsOCWilcox, "2025-10-29_OAvsOC_LT-HSC_DEG-Wilcox.xlsx") # save into an Excel file
+xlsx::write.xlsx(YAvsYCWilcox, "2025-10-29_YAvsYC_LT-HSC_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(OCvsYCWilcox, "2025-10-29_OCvsYC_LT-HSC_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(OAvsYCWilcox, "2025-10-29_OAvsYC_LT-HSC_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(YAvsOCWilcox, "2025-10-29_YAvsOC_LT-HSC_DEG-Wilcox.xlsx")
+```
+
+```{r}
+# Venn Diagram for differentially expressed genes from LT-HSC OA vs OC and YA vs YC comparisons
+# Get significantly differentially expressed gene lists from LT-HSC OA vs OC and ordered based on fold change
+Up.OAvsOCWilcox <- OAvsOCWilcox %>%
+  dplyr::filter(p_val_adj <= 0.05) %>%
+  dplyr::filter(avg_log2FC >= 0.58) %>%
+  dplyr::arrange(desc(avg_log2FC))
+GenesUpOAvsOC<-Up.OAvsOCWilcox$genes
+
+Dn.OAvsOCWilcox <- OAvsOCWilcox %>%
+  dplyr::filter(p_val_adj <= 0.05) %>%
+  dplyr::filter(avg_log2FC <= -0.58) %>%
+  dplyr::arrange(desc(avg_log2FC))
+GenesDnOAvsOC<-Dn.OAvsOCWilcox$genes
+
+Sig.OAvsOCWilcox <- rbind(Up.OAvsOCWilcox, Dn.OAvsOCWilcox)
+SigGenesOAvsOC <-Sig.OAvsOCWilcox$genes
+
+# Get significantly differentially expressed gene lists from LT-HSC YA vs YC
+Up.YAvsYCWilcox <- YAvsYCWilcox %>%
+  dplyr::filter(p_val_adj <= 0.05) %>%
+  dplyr::filter(avg_log2FC >= 0.58) %>%
+  dplyr::arrange(desc(avg_log2FC))
+GenesUpYAvsYC <- Up.YAvsYCWilcox$genes
+
+Dn.YAvsYCWilcox <- YAvsYCWilcox %>%
+  dplyr::filter(p_val_adj <= 0.05) %>%
+  dplyr::filter(avg_log2FC >= 0.58) %>%
+  dplyr::arrange(desc(avg_log2FC))
+GenesDnYAvsYC <- Dn.YAvsYCWilcox$genes
+
+Sig.YAvsYCWilcox <-rbind(Up.YAvsYCWilcox, Dn.YAvsYCWilcox)
+SigGenesYAvsYC <-Sig.YAvsYCWilcox$genes
+
+# Get significantly differentially expressed gene lists from LT-HSC OC vs YC
+Up.OCvsYCWilcox <- OCvsYCWilcox %>%
+  dplyr::filter(p_val_adj <= 0.05) %>%
+  dplyr::filter(avg_log2FC >= 0.58) %>%
+  dplyr::arrange(desc(avg_log2FC))
+GenesUpOCvsYC <- Up.OCvsYCWilcox$genes
+
+Dn.OCvsYCWilcox <- OCvsYCWilcox %>%
+  dplyr::filter(p_val_adj <= 0.05) %>%
+  dplyr::filter(avg_log2FC >= 0.58) %>%
+  dplyr::arrange(desc(avg_log2FC))
+GenesDnOCvsYC <- Dn.OCvsYCWilcox$genes
+
+Sig.OCvsYCWilcox <-rbind(Up.OCvsYCWilcox, Dn.OCvsYCWilcox)
+SigGenesOCvsYC <-Sig.OCvsYCWilcox$genes
+
+# VennDiagram Upregulated genes
+gene_list_up <- list(A = sample(GenesUpYAvsYC),
+                  B = sample(GenesUpOAvsOC))
+
+up<-ggVennDiagram(gene_list_up,
+              category.names = c("Up in YA vs YC", "Up in OA vs OC"), label = "count") + scale_x_continuous(expand = expansion(mult = .2)) + scale_fill_distiller(palette = "Reds", direction = 1) + coord_flip()
+ggsave("2025-06-09_VennDiagram_LT-HSC_Upregulated_genes.pdf", up, device=cairo_pdf,width = 5, height = 4, units = c("in"))
+
+# find overlaps and unique genes in the VennDiagram of upregulated genes
+intersect(GenesUpYAvsYC, GenesUpOAvsOC) # genes upregulated due to EtOH in both Y and O
+setdiff(GenesUpYAvsYC, GenesUpOAvsOC) # genes upregulated due to EtOH only in Young
+setdiff(GenesUpOAvsOC, GenesUpYAvsYC) # genes upregulated due to EtOH only in Old
+
+# Plot VennDiagram of Downregulated genes
+gene_list_dn <- list(D = sample(GenesDnYAvsYC),
+                  E = sample(GenesDnOAvsOC))
+
+dn<-ggVennDiagram(gene_list_dn,
+              category.names = c("Down in YA vs YC", "Down in OA vs OC"), label = "count") + scale_x_continuous(expand = expansion(mult = .2)) + scale_fill_distiller(palette = "Reds", direction = 1) + coord_flip()
+ggsave("2025-06-09_VennDiagram_LT-HSC_Downregulated_genes.pdf", dn, device=cairo_pdf,width = 5, height = 4, units = c("in"))
+# find overlaps and unique genes in the VennDiagram of downregulated genes
+intersect(GenesDnYAvsYC, GenesDnOAvsOC) # genes downregulated due to EtOH in both Y and O
+setdiff(GenesDnYAvsYC, GenesDnOAvsOC) # genes downregulated due to EtOH only in Young
+setdiff(GenesDnOAvsOC, GenesDnYAvsYC) # genes downregulated due to EtOH only in Old
+
+
+```
+
+```{r}
+genes <- paste0("gene",1:1000)
+set.seed(20210302)
+gene_list <- list(A = sample(genes,100),
+                  B = sample(genes,200),
+                  C = sample(genes,300),
+                  D = sample(genes,200))
+
+library(ggVennDiagram)
+library(ggplot2)
+```
+
+# b. MPP3 DEG Analysis using Wilcoxon 
+```{r}
+#MPP3 DEG Analysis using Wilcoxon
+# Hier analyziere ich die DEGs von Old Alcohol gegen Old Control beim MPP3 Cluster mit Wilcoxon-Rank Sum Test
+
+options(future.globals.maxSize = 26000 * 1024^2) # Diese Linie ist fur den Arbeitspeicher RAM vergrossern. Andernsfall das Kode arbeitet nicht
+
+MPP3_OAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "MPP3_Old alcohol", ident.2 = "MPP3_Old control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Young Alcohol gegen Young control beim MPP3Cluster
+MPP3_YAvsYCWilcox <- FindMarkers(CombinedCluster, ident.1 = "MPP3_Young alcohol", ident.2 = "MPP3_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Control gegen Young Control beim MPP3 Cluster
+MPP3_OCvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "MPP3_Old control", ident.2 = "MPP3_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Alcohol gegen Young Control beim MPP3 Cluster
+MPP3_OAvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "MPP3_Old alcohol", ident.2 = "MPP3_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von YA gegen OC group
+MPP3_YAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "MPP3_Young alcohol", ident.2 = "MPP3_Old control", test.use = "wilcox", verbose = FALSE)
+
+MPP3_OAvsOCWilcox$genes<-rownames(MPP3_OAvsOCWilcox) # extract gene names and add into a new column
+MPP3_YAvsYCWilcox$genes<-rownames(MPP3_YAvsYCWilcox) # extract gene names and add into a new column
+MPP3_OCvsYCWilcox$genes<-rownames(MPP3_OCvsYCWilcox) # extract gene names and add into a new column
+MPP3_OAvsYCWilcox$genes<-rownames(MPP3_OAvsYCWilcox) # extract gene names and add into a new column
+MPP3_YAvsOCWilcox$genes<-rownames(MPP3_YAvsOCWilcox) # extract gene names and add into a new column
+xlsx::write.xlsx(MPP3_OAvsOCWilcox, "2025-01-15_OAvsOC_MPP3_DEG-Wilcox.xlsx") # save into an Excel file
+xlsx::write.xlsx(MPP3_YAvsYCWilcox, "2025-01-15_YAvsYC_MPP3_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(MPP3_OCvsYCWilcox, "2025-01-15_OCvsYC_MPP3_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(MPP3_OAvsYCWilcox, "2025-01-15_OAvsYC_MPP3_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(MPP3_YAvsOCWilcox, "2025-01-15_YAvsOC_MPP3_DEG-Wilcox.xlsx")
+```
+
+# c. GMP DEG Analysis using Wilcoxon
+```{r}
+#GMP DEG Analysis using Wilcoxon
+# Hier analyziere ich die DEGs von Old Alcohol gegen Old Control beim GMP Cluster mit Wilcoxon-Rank Sum Test
+
+options(future.globals.maxSize = 26000 * 1024^2) # Diese Linie ist fur den Arbeitspeicher RAM vergrossern. Andernsfall das Kode arbeitet nicht
+
+GMP_OAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "GMP_Old alcohol", ident.2 = "GMP_Old control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Young Alcohol gegen Young control beim GMP Cluster
+GMP_YAvsYCWilcox <- FindMarkers(CombinedCluster, ident.1 = "GMP_Young alcohol", ident.2 = "GMP_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Control gegen Young Control beim GMP Cluster
+GMP_OCvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "GMP_Old control", ident.2 = "GMP_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Alcohol gegen Young Control beim GMP Cluster
+GMP_OAvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "GMP_Old alcohol", ident.2 = "GMP_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von YA gegen OC group
+GMP_YAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "GMP_Young alcohol", ident.2 = "GMP_Old control", test.use = "wilcox", verbose = FALSE)
+
+GMP_OAvsOCWilcox$genes<-rownames(GMP_OAvsOCWilcox) # extract gene names and add into a new column
+GMP_YAvsYCWilcox$genes<-rownames(GMP_YAvsYCWilcox) # extract gene names and add into a new column
+GMP_OCvsYCWilcox$genes<-rownames(GMP_OCvsYCWilcox) # extract gene names and add into a new column
+GMP_OAvsYCWilcox$genes<-rownames(GMP_OAvsYCWilcox) # extract gene names and add into a new column
+GMP_YAvsOCWilcox$genes<-rownames(GMP_YAvsOCWilcox) # extract gene names and add into a new column
+xlsx::write.xlsx(GMP_OAvsOCWilcox, "2025-01-15_OAvsOC_GMP_DEG-Wilcox.xlsx") # save into an Excel file
+xlsx::write.xlsx(GMP_YAvsYCWilcox, "2025-01-15_YAvsYC_GMP_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(GMP_OCvsYCWilcox, "2025-01-15_OCvsYC_GMP_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(GMP_OAvsYCWilcox, "2025-01-15_OAvsYC_GMP_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(GMP_YAvsOCWilcox, "2025-01-15_YAvsOC_GMP_DEG-Wilcox.xlsx")
+```
+
+# d. MEP DEG Analysis using Wilcoxon
+```{r}
+#MEP DEG Analysis using Wilcoxon
+# Hier analyziere ich die DEGs von Old Alcohol gegen Old Control beim MEP Cluster mit Wilcoxon-Rank Sum Test
+
+options(future.globals.maxSize = 26000 * 1024^2) # Diese Linie ist fur den Arbeitspeicher RAM vergrossern. Andernsfall das Kode arbeitet nicht
+
+MEP_OAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "MEP_Old alcohol", ident.2 = "MEP_Old control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Young Alcohol gegen Young control beim MEP Cluster
+MEP_YAvsYCWilcox <- FindMarkers(CombinedCluster, ident.1 = "MEP_Young alcohol", ident.2 = "MEP_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Control gegen Young Control beim MEP Cluster
+MEP_OCvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "MEP_Old control", ident.2 = "MEP_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Alcohol gegen Young Control beim MEP Cluster
+MEP_OAvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "MEP_Old alcohol", ident.2 = "MEP_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von YA gegen OC group
+MEP_YAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "MEP_Young alcohol", ident.2 = "MEP_Old control", test.use = "wilcox", verbose = FALSE)
+
+MEP_OAvsOCWilcox$genes<-rownames(MEP_OAvsOCWilcox) # extract gene names and add into a new column
+MEP_YAvsYCWilcox$genes<-rownames(MEP_YAvsYCWilcox) # extract gene names and add into a new column
+MEP_OCvsYCWilcox$genes<-rownames(MEP_OCvsYCWilcox) # extract gene names and add into a new column
+MEP_OAvsYCWilcox$genes<-rownames(MEP_OAvsYCWilcox) # extract gene names and add into a new column
+MEP_YAvsOCWilcox$genes<-rownames(MEP_YAvsOCWilcox) # extract gene names and add into a new column
+xlsx::write.xlsx(MEP_OAvsOCWilcox, "2025-01-15_OAvsOC_MEP_DEG-Wilcox.xlsx") # save into an Excel file
+xlsx::write.xlsx(MEP_YAvsYCWilcox, "2025-01-15_YAvsYC_MEP_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(MEP_OCvsYCWilcox, "2025-01-15_OCvsYC_MEP_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(MEP_OAvsYCWilcox, "2025-01-15_OAvsYC_MEP_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(MEP_YAvsOCWilcox, "2025-01-15_YAvsOC_MEP_DEG-Wilcox.xlsx")
+```
+
+
+# e. MPP2 DEG Analysis using Wilcoxon
+```{r}
+#MPP2 DEG Analysis using Wilcoxon
+# Hier analyziere ich die DEGs von Old Alcohol gegen Old Control beim MPP2 Cluster mit Wilcoxon-Rank Sum Test
+
+options(future.globals.maxSize = 26000 * 1024^2) # Diese Linie ist fur den Arbeitspeicher RAM vergrossern. Andernsfall das Kode arbeitet nicht
+
+MPP2_OAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "MPP2_Old alcohol", ident.2 = "MPP2_Old control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Young Alcohol gegen Young control beim MPP2 Cluster
+MPP2_YAvsYCWilcox <- FindMarkers(CombinedCluster, ident.1 = "MPP2_Young alcohol", ident.2 = "MPP2_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Control gegen Young Control beim MPP2 Cluster
+MPP2_OCvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "MPP2_Old control", ident.2 = "MPP2_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Alcohol gegen Young Control beim MPP2 Cluster
+MPP2_OAvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "MPP2_Old alcohol", ident.2 = "MPP2_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von YA gegen OC group
+MPP2_YAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "MPP2_Young alcohol", ident.2 = "MPP2_Old control", test.use = "wilcox", verbose = FALSE)
+
+MPP2_OAvsOCWilcox$genes<-rownames(MPP2_OAvsOCWilcox) # extract gene names and add into a new column
+MPP2_YAvsYCWilcox$genes<-rownames(MPP2_YAvsYCWilcox) # extract gene names and add into a new column
+MPP2_OCvsYCWilcox$genes<-rownames(MPP2_OCvsYCWilcox) # extract gene names and add into a new column
+MPP2_OAvsYCWilcox$genes<-rownames(MPP2_OAvsYCWilcox) # extract gene names and add into a new column
+MPP2_YAvsOCWilcox$genes<-rownames(MPP2_YAvsOCWilcox) # extract gene names and add into a new column
+xlsx::write.xlsx(MPP2_OAvsOCWilcox, "2025-01-15_OAvsOC_MPP2_DEG-Wilcox.xlsx") # save into an Excel file
+xlsx::write.xlsx(MPP2_YAvsYCWilcox, "2025-01-15_YAvsYC_MPP2_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(MPP2_OCvsYCWilcox, "2025-01-15_OCvsYC_MPP2_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(MPP2_OAvsYCWilcox, "2025-01-15_OAvsYC_MPP2_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(MPP2_YAvsOCWilcox, "2025-01-15_YAvsOC_MPP2_DEG-Wilcox.xlsx")
+```
+# f. MPP4 DEG Analysis using Wilcoxon
+```{r}
+#MPP4 DEG Analysis using Wilcoxon
+# Hier analyziere ich die DEGs von Old Alcohol gegen Old Control beim MPP4 Cluster mit Wilcoxon-Rank Sum Test
+
+options(future.globals.maxSize = 26000 * 1024^2) # Diese Linie ist fur den Arbeitspeicher RAM vergrossern. Andernsfall das Kode arbeitet nicht
+
+MPP4_OAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "MPP4_Old alcohol", ident.2 = "MPP4_Old control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Young Alcohol gegen Young control beim MPP4 Cluster
+MPP4_YAvsYCWilcox <- FindMarkers(CombinedCluster, ident.1 = "MPP4_Young alcohol", ident.2 = "MPP4_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Control gegen Young Control beim MPP4 Cluster
+MPP4_OCvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "MPP4_Old control", ident.2 = "MPP4_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Alcohol gegen Young Control beim MPP4 Cluster
+MPP4_OAvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "MPP4_Old alcohol", ident.2 = "MPP4_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von YA gegen OC group
+MPP4_YAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "MPP4_Young alcohol", ident.2 = "MPP4_Old control", test.use = "wilcox", verbose = FALSE)
+
+MPP4_OAvsOCWilcox$genes<-rownames(MPP4_OAvsOCWilcox) # extract gene names and add into a new column
+MPP4_YAvsYCWilcox$genes<-rownames(MPP4_YAvsYCWilcox) # extract gene names and add into a new column
+MPP4_OCvsYCWilcox$genes<-rownames(MPP4_OCvsYCWilcox) # extract gene names and add into a new column
+MPP4_OAvsYCWilcox$genes<-rownames(MPP4_OAvsYCWilcox) # extract gene names and add into a new column
+MPP4_YAvsOCWilcox$genes<-rownames(MPP4_YAvsOCWilcox) # extract gene names and add into a new column
+xlsx::write.xlsx(MPP4_OAvsOCWilcox, "2025-01-15_OAvsOC_MPP4_DEG-Wilcox.xlsx") # save into an Excel file
+xlsx::write.xlsx(MPP4_YAvsYCWilcox, "2025-01-15_YAvsYC_MPP4_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(MPP4_OCvsYCWilcox, "2025-01-15_OCvsYC_MPP4_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(MPP4_OAvsYCWilcox, "2025-01-15_OAvsYC_MPP4_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(MPP4_YAvsOCWilcox, "2025-01-15_YAvsOC_MPP4_DEG-Wilcox.xlsx")
+```
+
+# g. ST-HSC DEG Analysis using Wilcoxon
+```{r}
+#ST-HSC DEG Analysis using Wilcoxon
+# Hier analyziere ich die DEGs von Old Alcohol gegen Old Control beim ST-HSC Cluster mit Wilcoxon-Rank Sum Test
+
+options(future.globals.maxSize = 26000 * 1024^2) # Diese Linie ist fur den Arbeitspeicher RAM vergrossern. Andernsfall das Kode arbeitet nicht
+
+ST_HSC_OAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "ST-HSC_Old alcohol", ident.2 = "ST-HSC_Old control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Young Alcohol gegen Young control beim ST-HSC Cluster
+ST_HSC_YAvsYCWilcox <- FindMarkers(CombinedCluster, ident.1 = "ST-HSC_Young alcohol", ident.2 = "ST-HSC_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Control gegen Young Control beim ST-HSC Cluster
+ST_HSC_OCvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "ST-HSC_Old control", ident.2 = "ST-HSC_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Alcohol gegen Young Control beim ST-HSC Cluster
+ST_HSC_OAvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "ST-HSC_Old alcohol", ident.2 = "ST-HSC_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von YA gegen OC group
+ST_HSC_YAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "ST-HSC_Young alcohol", ident.2 = "ST-HSC_Old control", test.use = "wilcox", verbose = FALSE)
+
+ST_HSC_OAvsOCWilcox$genes<-rownames(ST_HSC_OAvsOCWilcox) # extract gene names and add into a new column
+ST_HSC_YAvsYCWilcox$genes<-rownames(ST_HSC_YAvsYCWilcox) # extract gene names and add into a new column
+ST_HSC_OCvsYCWilcox$genes<-rownames(ST_HSC_OCvsYCWilcox) # extract gene names and add into a new column
+ST_HSC_OAvsYCWilcox$genes<-rownames(ST_HSC_OAvsYCWilcox) # extract gene names and add into a new column
+ST_HSC_YAvsOCWilcox$genes<-rownames(ST_HSC_YAvsOCWilcox) # extract gene names and add into a new column
+xlsx::write.xlsx(ST_HSC_OAvsOCWilcox, "2025-01-15_OAvsOC_ST-HSC_DEG-Wilcox.xlsx") # save into an Excel file
+xlsx::write.xlsx(ST_HSC_YAvsYCWilcox, "2025-01-15_YAvsYC_ST-HSC_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(ST_HSC_OCvsYCWilcox, "2025-01-15_OCvsYC_ST-HSC_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(ST_HSC_OAvsYCWilcox, "2025-01-15_OAvsYC_ST-HSC_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(ST_HSC_YAvsOCWilcox, "2025-01-15_YAvsOC_ST-HSC_DEG-Wilcox.xlsx")
+```
+
+# h. MDP DEG Analysis using Wilcoxon
+```{r}
+#MDP DEG Analysis using Wilcoxon
+# Hier analyziere ich die DEGs von Old Alcohol gegen Old Control beim MDP Cluster mit Wilcoxon-Rank Sum Test
+
+options(future.globals.maxSize = 26000 * 1024^2) # Diese Linie ist fur den Arbeitspeicher RAM vergrossern. Andernsfall das Kode arbeitet nicht
+
+MDP_OAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "MDP_Old alcohol", ident.2 = "MDP_Old control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Young Alcohol gegen Young control beim MDP Cluster
+MDP_YAvsYCWilcox <- FindMarkers(CombinedCluster, ident.1 = "MDP_Young alcohol", ident.2 = "MDP_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Control gegen Young Control beim MDP Cluster
+MDP_OCvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "MDP_Old control", ident.2 = "MDP_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Alcohol gegen Young Control beim MDP Cluster
+MDP_OAvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "MDP_Old alcohol", ident.2 = "MDP_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von YA gegen OC group
+MDP_YAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "MDP_Young alcohol", ident.2 = "MDP_Old control", test.use = "wilcox", verbose = FALSE)
+
+MDP_OAvsOCWilcox$genes<-rownames(MDP_OAvsOCWilcox) # extract gene names and add into a new column
+MDP_YAvsYCWilcox$genes<-rownames(MDP_YAvsYCWilcox) # extract gene names and add into a new column
+MDP_OCvsYCWilcox$genes<-rownames(MDP_OCvsYCWilcox) # extract gene names and add into a new column
+MDP_OAvsYCWilcox$genes<-rownames(MDP_OAvsYCWilcox) # extract gene names and add into a new column
+MDP_YAvsOCWilcox$genes<-rownames(MDP_YAvsOCWilcox) # extract gene names and add into a new column
+xlsx::write.xlsx(MDP_OAvsOCWilcox, "2025-01-15_OAvsOC_MDP_DEG-Wilcox.xlsx") # save into an Excel file
+xlsx::write.xlsx(MDP_YAvsYCWilcox, "2025-01-15_YAvsYC_MDP_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(MDP_OCvsYCWilcox, "2025-01-15_OCvsYC_MDP_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(MDP_OAvsYCWilcox, "2025-01-15_OAvsYC_MDP_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(MDP_YAvsOCWilcox, "2025-01-15_YAvsOC_MDP_DEG-Wilcox.xlsx")
+```
+
+# i. CLP DEG Analysis using Wilcoxon
+```{r}
+#CLP DEG Analysis using Wilcoxon
+# Hier analyziere ich die DEGs von Old Alcohol gegen Old Control beim CLP Cluster mit Wilcoxon-Rank Sum Test
+
+options(future.globals.maxSize = 26000 * 1024^2) # Diese Linie ist fur den Arbeitspeicher RAM vergrossern. Andernsfall das Kode arbeitet nicht
+
+CLP_OAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "CLP_Old alcohol", ident.2 = "CLP_Old control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Young Alcohol gegen Young control beim CLP Cluster
+CLP_HSC_YAvsYCWilcox <- FindMarkers(CombinedCluster, ident.1 = "CLP_Young alcohol", ident.2 = "CLP_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Control gegen Young Control beim CLP Cluster
+CLP_OCvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "CLP_Old control", ident.2 = "CLP_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Alcohol gegen Young Control beim CLP Cluster
+CLP_OAvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "CLP_Old alcohol", ident.2 = "CLP_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von YA gegen OC group
+CLP_YAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "CLP_Young alcohol", ident.2 = "CLP_Old control", test.use = "wilcox", verbose = FALSE)
+
+CLP_OAvsOCWilcox$genes<-rownames(CLP_OAvsOCWilcox) # extract gene names and add into a new column
+CLP_HSC_YAvsYCWilcox$genes<-rownames(CLP_HSC_YAvsYCWilcox) # extract gene names and add into a new column
+CLP_OCvsYCWilcox$genes<-rownames(CLP_OCvsYCWilcox) # extract gene names and add into a new column
+CLP_OAvsYCWilcox$genes<-rownames(CLP_OAvsYCWilcox) # extract gene names and add into a new column
+CLP_YAvsOCWilcox$genes<-rownames(CLP_YAvsOCWilcox) # extract gene names and add into a new column
+xlsx::write.xlsx(CLP_OAvsOCWilcox, "2025-01-15_OAvsOC_CLP_DEG-Wilcox.xlsx") # save into an Excel file
+xlsx::write.xlsx(CLP_HSC_YAvsYCWilcox, "2025-01-15_YAvsYC_CLP_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(CLP_OCvsYCWilcox, "2025-01-15_OCvsYC_CLP_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(CLP_OAvsYCWilcox, "2025-01-15_OAvsYC_CLP_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(CLP_YAvsOCWilcox, "2025-01-15_YAvsOC_CLP_DEG-Wilcox.xlsx")
+```
+
+
+# j. CDP DEG Analysis using Wilcoxon
+```{r}
+#CDP DEG Analysis using Wilcoxon
+# Hier analyziere ich die DEGs von Old Alcohol gegen Old Control beim CDP Cluster mit Wilcoxon-Rank Sum Test
+
+options(future.globals.maxSize = 26000 * 1024^2) # Diese Linie ist fur den Arbeitspeicher RAM vergrossern. Andernsfall das Kode arbeitet nicht
+
+CDP_OAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "CDP_Old alcohol", ident.2 = "CDP_Old control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Young Alcohol gegen Young control beim CDP Cluster
+CDP_YAvsYCWilcox <- FindMarkers(CombinedCluster, ident.1 = "CDP_Young alcohol", ident.2 = "CDP_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Control gegen Young Control beim CDP Cluster
+CDP_OCvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "CDP_Old control", ident.2 = "CDP_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Alcohol gegen Young Control beim CDP Cluster
+CDP_OAvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "CDP_Old alcohol", ident.2 = "CDP_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von YA gegen OC group
+CDP_YAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "CDP_Young alcohol", ident.2 = "CDP_Old control", test.use = "wilcox", verbose = FALSE)
+
+CDP_OAvsOCWilcox$genes<-rownames(CDP_OAvsOCWilcox) # extract gene names and add into a new column
+CDP_YAvsYCWilcox$genes<-rownames(CDP_YAvsYCWilcox) # extract gene names and add into a new column
+CDP_OCvsYCWilcox$genes<-rownames(CDP_OCvsYCWilcox) # extract gene names and add into a new column
+CDP_OAvsYCWilcox$genes<-rownames(CDP_OAvsYCWilcox) # extract gene names and add into a new column
+CDP_YAvsOCWilcox$genes<-rownames(CDP_YAvsOCWilcox) # extract gene names and add into a new column
+xlsx::write.xlsx(CDP_OAvsOCWilcox, "2025-01-15_OAvsOC_CDP_DEG-Wilcox.xlsx") # save into an Excel file
+xlsx::write.xlsx(CDP_YAvsYCWilcox, "2025-01-15_YAvsYC_CDP_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(CDP_OCvsYCWilcox, "2025-01-15_OCvsYC_CDP_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(CDP_OAvsYCWilcox, "2025-01-15_OAvsYC_CDP_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(CDP_YAvsOCWilcox, "2025-01-15_YAvsOC_CDP_DEG-Wilcox.xlsx")
+```
+
+
+# k. B cell Prog DEG Analysis using Wilcoxon
+```{r}
+#B cell pro DEG Analysis using Wilcoxon
+# Hier analyziere ich die DEGs von Old Alcohol gegen Old Control beim B cell pro Cluster mit Wilcoxon-Rank Sum Test
+
+options(future.globals.maxSize = 26000 * 1024^2) # Diese Linie ist fur den Arbeitspeicher RAM vergrossern. Andernsfall das Kode arbeitet nicht
+
+Bcellpro_OAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "B cell prog_Old alcohol", ident.2 = "B cell prog_Old control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Young Alcohol gegen Young control beim Bcellpro Cluster
+Bcellpro_HSC_YAvsYCWilcox <- FindMarkers(CombinedCluster, ident.1 = "B cell prog_Young alcohol", ident.2 = "B cell prog_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Control gegen Young Control beim Bcellpro Cluster
+Bcellpro_OCvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "B cell prog_Old control", ident.2 = "B cell prog_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Alcohol gegen Young Control beim Bcellpro Cluster
+Bcellpro_OAvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "B cell prog_Old alcohol", ident.2 = "B cell prog_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von YA gegen OC group
+Bcellpro_YAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "B cell prog_Young alcohol", ident.2 = "B cell prog_Old control", test.use = "wilcox", verbose = FALSE)
+
+Bcellpro_OAvsOCWilcox$genes<-rownames(Bcellpro_OAvsOCWilcox) # extract gene names and add into a new column
+Bcellpro_HSC_YAvsYCWilcox$genes<-rownames(Bcellpro_HSC_YAvsYCWilcox) # extract gene names and add into a new column
+Bcellpro_OCvsYCWilcox$genes<-rownames(Bcellpro_OCvsYCWilcox) # extract gene names and add into a new column
+Bcellpro_OAvsYCWilcox$genes<-rownames(Bcellpro_OAvsYCWilcox) # extract gene names and add into a new column
+Bcellpro_YAvsOCWilcox$genes<-rownames(Bcellpro_YAvsOCWilcox) # extract gene names and add into a new column
+xlsx::write.xlsx(Bcellpro_OAvsOCWilcox, "2025-01-15_OAvsOC_Bcellpro_DEG-Wilcox.xlsx") # save into an Excel file
+xlsx::write.xlsx(Bcellpro_HSC_YAvsYCWilcox, "2025-01-15_YAvsYC_Bcellpro_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(Bcellpro_OCvsYCWilcox, "2025-01-15_OCvsYC_Bcellpro_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(Bcellpro_OAvsYCWilcox, "2025-01-15_OAvsYC_Bcellpro_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(Bcellpro_YAvsOCWilcox, "2025-01-15_YAvsOC_Bcellpro_DEG-Wilcox.xlsx")
+```
+
+
+# l. T cell Progenitor DEG Analysis using Wilcoxon
+```{r}
+#T cell pro DEG Analysis using Wilcoxon
+# Hier analyziere ich die DEGs von Old Alcohol gegen Old Control beim T cell pro Cluster mit Wilcoxon-Rank Sum Test
+
+options(future.globals.maxSize = 26000 * 1024^2) # Diese Linie ist fur den Arbeitspeicher RAM vergrossern. Andernsfall das Kode arbeitet nicht
+
+Tcellpro_OAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "T cell progenitor_Old alcohol", ident.2 = "T cell progenitor_Old control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Young Alcohol gegen Young control beim Tcellpro Cluster
+Tcellpro_HSC_YAvsYCWilcox <- FindMarkers(CombinedCluster, ident.1 = "T cell progenitor_Young alcohol", ident.2 = "T cell progenitor_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Control gegen Young Control beim Tcellpro Cluster
+Tcellpro_OCvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "T cell progenitor_Old control", ident.2 = "T cell progenitor_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Alcohol gegen Young Control beim Tcellpro Cluster
+Tcellpro_OAvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "T cell progenitor_Old alcohol", ident.2 = "T cell progenitor_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von YA gegen OC group
+Tcellpro_YAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "T cell progenitor_Young alcohol", ident.2 = "T cell progenitor_Old control", test.use = "wilcox", verbose = FALSE)
+
+Tcellpro_OAvsOCWilcox$genes<-rownames(Tcellpro_OAvsOCWilcox) # extract gene names and add into a new column
+Tcellpro_YAvsYCWilcox$genes<-rownames(Tcellpro_YAvsYCWilcox) # extract gene names and add into a new column
+Tcellpro_OCvsYCWilcox$genes<-rownames(Tcellpro_OCvsYCWilcox) # extract gene names and add into a new column
+Tcellpro_OAvsYCWilcox$genes<-rownames(Tcellpro_OAvsYCWilcox) # extract gene names and add into a new column
+Tcellpro_YAvsOCWilcox$genes<-rownames(Tcellpro_YAvsOCWilcox) # extract gene names and add into a new column
+xlsx::write.xlsx(Tcellpro_OAvsOCWilcox, "2025-01-15_OAvsOC_Tcellpro_DEG-Wilcox.xlsx") # save into an Excel file
+xlsx::write.xlsx(Tcellpro_YAvsYCWilcox, "2025-01-15_YAvsYC_Tcellpro_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(Tcellpro_OCvsYCWilcox, "2025-01-15_OCvsYC_Tcellpro_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(Tcellpro_OAvsYCWilcox, "2025-01-15_OAvsYC_Tcellpro_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(Tcellpro_YAvsOCWilcox, "2025-01-15_YAvsOC_Tcellpro_DEG-Wilcox.xlsx")
+```
+
+
+# m. BASO/Mast progenitor Progenitor DEG Analysis using Wilcoxon
+```{r}
+#BASO/Mast progenitor DEG Analysis using Wilcoxon
+# Hier analyziere ich die DEGs von Old Alcohol gegen Old Control beim BASO/Mast progenitor Cluster mit Wilcoxon-Rank Sum Test
+
+options(future.globals.maxSize = 26000 * 1024^2) # Diese Linie ist fur den Arbeitspeicher RAM vergrossern. Andernsfall das Kode arbeitet nicht
+
+BasoMastProg_OAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "Baso/Mast progenitor_Old alcohol", ident.2 = "Baso/Mast progenitor_Old control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Young Alcohol gegen Young control beim BASO/Mast progenitor Cluster
+BasoMastProg_YAvsYCWilcox <- FindMarkers(CombinedCluster, ident.1 = "Baso/Mast progenitor_Young alcohol", ident.2 = "Baso/Mast progenitor_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Control gegen Young Control beim BASO/Mast progenitor Cluster
+BasoMastProg_OCvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "Baso/Mast progenitor_Old control", ident.2 = "Baso/Mast progenitor_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Alcohol gegen Young Control beim BASO/Mast progenitor Cluster
+BasoMastProg_OAvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "Baso/Mast progenitor_Old alcohol", ident.2 = "Baso/Mast progenitor_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von YA gegen OC group
+BasoMastProg_YAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "Baso/Mast progenitor_Young alcohol", ident.2 = "Baso/Mast progenitor_Old control", test.use = "wilcox", verbose = FALSE)
+
+BasoMastProg_OAvsOCWilcox$genes<-rownames(BasoMastProg_OAvsOCWilcox) # extract gene names and add into a new column
+BasoMastProg_YAvsYCWilcox$genes<-rownames(BasoMastProg_YAvsYCWilcox) # extract gene names and add into a new column
+BasoMastProg_OCvsYCWilcox$genes<-rownames(BasoMastProg_OCvsYCWilcox) # extract gene names and add into a new column
+BasoMastProg_OAvsYCWilcox$genes<-rownames(BasoMastProg_OAvsYCWilcox) # extract gene names and add into a new column
+BasoMastProg_YAvsOCWilcox$genes<-rownames(BasoMastProg_YAvsOCWilcox) # extract gene names and add into a new column
+xlsx::write.xlsx(BasoMastProg_OAvsOCWilcox, "2025-01-15_OAvsOC_BasoMastProg_DEG-Wilcox.xlsx") # save into an Excel file
+xlsx::write.xlsx(BasoMastProg_YAvsYCWilcox, "2025-01-15_YAvsYC_BasoMastProg_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(BasoMastProg_OCvsYCWilcox, "2025-01-15_OCvsYC_BasoMastProgDEG-Wilcox.xlsx")
+xlsx::write.xlsx(BasoMastProg_OAvsYCWilcox, "2025-01-15_OAvsYC_BasoMastProg_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(BasoMastProg_YAvsOCWilcox, "2025-01-15_YAvsOC_BasoMastProg_DEG-Wilcox.xlsx")
+```
+
+
+# n. Unknown progenitor Progenitor DEG Analysis using Wilcoxon
+```{r}
+#Unknown progenitor DEG Analysis using Wilcoxon
+# Hier analyziere ich die DEGs von Old Alcohol gegen Old Control beim Unknown progenitor Cluster mit Wilcoxon-Rank Sum Test
+
+options(future.globals.maxSize = 26000 * 1024^2) # Diese Linie ist fur den Arbeitspeicher RAM vergrossern. Andernsfall das Kode arbeitet nicht
+
+Unknown_OAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "Unknown_Old alcohol", ident.2 = "Unknown_Old control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Young Alcohol gegen Young control beim Unknown progenitor Cluster
+Unknown_YAvsYCWilcox <- FindMarkers(CombinedCluster, ident.1 = "Unknown_Young alcohol", ident.2 = "Unknown_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Control gegen Young Control beim Unknown progenitor Cluster
+Unknown_OCvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "Unknown_Old control", ident.2 = "Unknown_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von Old Alcohol gegen Young Control beim Unknown progenitor Cluster
+Unknown_OAvsYCWilcox<- FindMarkers(CombinedCluster, ident.1 = "Unknown_Old alcohol", ident.2 = "Unknown_Young control", test.use = "wilcox", verbose = FALSE)
+
+# Hier analyziere ich DEGs von YA gegen OC group
+Unknown_YAvsOCWilcox<- FindMarkers(CombinedCluster, ident.1 = "Unknown_Young alcohol", ident.2 = "Unknown_Old control", test.use = "wilcox", verbose = FALSE)
+
+Unknown_OAvsOCWilcox$genes<-rownames(Unknown_OAvsOCWilcox) # extract gene names and add into a new column
+Unknown_YAvsYCWilcox$genes<-rownames(Unknown_YAvsYCWilcox) # extract gene names and add into a new column
+Unknown_OCvsYCWilcox$genes<-rownames(Unknown_OCvsYCWilcox) # extract gene names and add into a new column
+Unknown_OAvsYCWilcox$genes<-rownames(Unknown_OAvsYCWilcox) # extract gene names and add into a new column
+Unknown_YAvsOCWilcox$genes<-rownames(Unknown_YAvsOCWilcox) # extract gene names and add into a new column
+xlsx::write.xlsx(Unknown_OAvsOCWilcox, "2025-01-15_OAvsOC_Unknown_DEG-Wilcox.xlsx") # save into an Excel file
+xlsx::write.xlsx(Unknown_YAvsYCWilcox, "2025-01-15_YAvsYC_Unknown_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(Unknown_OCvsYCWilcox, "2025-01-15_OCvsYC_Unknown_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(Unknown_OAvsYCWilcox, "2025-01-15_OAvsYC_Unknown_DEG-Wilcox.xlsx")
+xlsx::write.xlsx(Unknown_YAvsOCWilcox, "2025-01-15_YAvsOC_Unknown_DEG-Wilcox.xlsx")
+```
+
+#9 Volcano plot visualization
+# LT-HSC volcano plot
+```{r}
+# Add a column to indicate significantly differentially expressed genes
+#data <- ST_HSC_OAvsOCWilcox %>% 
+ # mutate(significant = ifelse(abs(avg_log2FC) > 0.6 & p_val_adj < 0.01, "Significant", "Not significant"))
+
+#top 50 DEGs OA vs OC ST-HSC
+#top_genes <- data %>% 
+ # dplyr::filter(p_val_adj < 0.01, abs(avg_log2FC) > 0.6) %>% 
+  #arrange(p_val_adj) %>% 
+  #slice_head(n = 100) %>% 
+  #pull(genes)
+
+#=============== plot DEG OA vs OC#====================
+# Plot using EnhancedVolcano
+LTHSC_OAvsOC<-EnhancedVolcano(OAvsOCWilcox,
+    lab = OAvsOCWilcox$genes,
+    selectLab = c("Cdkn1a", "Fos", "Jun", 
+                              "Egr1", "Klf2", "Klf4", "Mpo", "Ctsg", "Irf8", "Cd74", "Ighv1-85", "Igkv3-4","Ly6d", "Hoxb8", "Mir5107",  "Rtl8c", "Matn4", "H2-Q4", "Jun", "Junb", "Cand2", "Rn18s-rs5", "Snora62", "mt-Cytb", "Nfkbiz", "Isg15", "Ifitm1", "Ifi27", "Ifi27l2a", "Ifi44"),
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+     xlim =c(-8, 8),
+    ylim = c(0, 320),
+    title = 'DEGs of Alcohol vs Control in old mouse LT-HSC',
+    xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 0.05,
+    FCcutoff = 0.5,
+    cutoffLineType = 'twodash',
+    cutoffLineWidth = 0.8,
+    pointSize = 1.0,
+    labSize = 3.0,
+    # shape = c(1,4, 23,25),
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log2FC','p-value',
+      'p-value & Log2FC'),
+    legendPosition = 'right',
+    legendLabSize = 12,
+    legendIconSize = 5.0,
+    drawConnectors = TRUE,
+    #widthConnectors = 0.5,
+    max.overlaps = 100,
+    # ridlines.major = FALSE,
+    gridlines.minor = FALSE)
+
+ggsave("2025-02-20_Volcano_LT-HSC_OAvsOC.pdf", LTHSC_OAvsOC, device=cairo_pdf,width = 10, height = 7, units = c("in"))
+
+#=============== plot DEG YA vs YC#====================
+# Plot using EnhancedVolcano
+LTHSC_YAvsYC<-EnhancedVolcano(YAvsYCWilcox,
+    lab = YAvsYCWilcox$genes,
+    selectLab = c("Cdkn1a", "Fos",
+                              "Egr1", "Klf2", "Cd74", "Hoxb8", "H2-Q4", "Junb", "Cand2", "Snora62", "mt-Cytb", "Nfkbid", "Ifitm1"),
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+     xlim =c(-8, 8),
+    ylim = c(0, 320),
+    title = 'DEGs of Alcohol vs Control in young mouse LT-HSC',
+    xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 0.05,
+    FCcutoff = 0.5,
+    cutoffLineType = 'twodash',
+    cutoffLineWidth = 0.8,
+    pointSize = 1.0,
+    labSize = 3.0,
+    # shape = c(1,4, 23,25),
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log2FC','p-value',
+      'p-value & Log2FC'),
+    legendPosition = 'right',
+    legendLabSize = 12,
+    legendIconSize = 5.0,
+    drawConnectors = TRUE,
+    #widthConnectors = 0.5,
+    max.overlaps = 100,
+    # ridlines.major = FALSE,
+    gridlines.minor = FALSE)
+
+ggsave("2025-02-20_Volcano_LT-HSC_YAvsYC.pdf", LTHSC_YAvsYC, device=cairo_pdf,width = 10, height = 7, units = c("in"))
+
+#=============== plot DEG OC vs YC#====================
+# Make sure gene labels are in a column named 'genes'
+OCvsYCWilcox$genes <- rownames(OCvsYCWilcox)
+
+# Create volcano plot
+LTHSC_OCvsYC <- EnhancedVolcano(OCvsYCWilcox,
+  lab = OCvsYCWilcox$genes,
+  selectLab = c("Cdkn1a", "Fos", "Egr1", "Klf2", "Cd74", 
+                "Hoxb8", "H2-Q4", "Junb", "Cand2", "Snora62", 
+                "mt-Cytb", "Nfkbid", "Ifitm1"),
+  x = 'avg_log2FC',
+  y = 'p_val_adj',
+  xlim = c(-8, 8),
+  ylim = c(0, 320),
+  title = 'DEGs of Old vs Young Control in LT-HSC',
+  xlab = bquote(~Log[2]~ 'fold change'),
+  pCutoff = 0.05,
+  FCcutoff = 0.5,
+  cutoffLineType = 'twodash',
+  cutoffLineWidth = 0.8,
+  pointSize = 1.0,
+  labSize = 3.0,
+  colAlpha = 1,
+  legendLabels = c('Not sig.', 'Log2FC', 'p-value', 'p-value & Log2FC'),
+  legendPosition = 'right',
+  legendLabSize = 12,
+  legendIconSize = 5.0,
+  drawConnectors = TRUE,
+  max.overlaps = 100,
+  gridlines.minor = FALSE
+)
+
+# Save the plot
+ggsave("2025-02-20_Volcano_LT-HSC_OCvsYC.pdf", LTHSC_OCvsYC, device = cairo_pdf, width = 10, height = 7, units = "in")
+
+```
+
+# ST-HSC volcano plot
+```{r}
+# Add a column to indicate significantly differentially expressed genes
+#data <- ST_HSC_OAvsOCWilcox %>% 
+ # mutate(significant = ifelse(abs(avg_log2FC) > 0.6 & p_val_adj < 0.01, "Significant", "Not significant"))
+
+#top 50 DEGs OA vs OC ST-HSC
+#top_genes <- data %>% 
+ # dplyr::filter(p_val_adj < 0.01, abs(avg_log2FC) > 0.6) %>% 
+  #arrange(p_val_adj) %>% 
+  #slice_head(n = 100) %>% 
+  #pull(genes)
+
+# Plot using EnhancedVolcano
+EnhancedVolcano(ST_HSC_OAvsOCWilcox,
+    lab = ST_HSC_OAvsOCWilcox$genes,
+    selectLab = c("Cdkn1a", "Fos", "Jun", 
+                              "Egr1", "Klf2", "Klf4", "Mpo", "Ctsg", "Irf8", "Mki67", "Siglece", "Siglecf", "Ly86", "Fcgr3", "Cd74","H2-T3", "Ighv1-85", "Igkv3-4","Cebpa", "Ly6d","Cdk1", "Csf1r", "Csf2rb", "Hoxb8", "Hoxb9", "Mir5107", "Il1rapl2", "Rtl8c", "Matn4", "Mpl", "H2-Q4", "Irf6", "Cavin2", "Neo1", "Wwtr1", "Hoxb2", "Hoxb6", "Cdkn1c"),
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+     xlim =c(-8, 8),
+    ylim = c(0, 320),
+    title = 'DEGs of Alcohol vs Control in old mouse ST-HSC',
+    xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 10e-2,
+    FCcutoff = 0.5,
+    cutoffLineType = 'twodash',
+    cutoffLineWidth = 0.8,
+    pointSize = 1.0,
+    labSize = 4.0,
+    # shape = c(1,4, 23,25),
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log2FC','p-value',
+      'p-value & Log2FC'),
+    legendPosition = 'right',
+    legendLabSize = 12,
+    legendIconSize = 5.0,
+    drawConnectors = TRUE,
+    #widthConnectors = 0.5,
+    max.overlaps = 40,
+    # ridlines.major = FALSE,
+    gridlines.minor = FALSE)
+
+
+```
+
+
+# 10. Gene set enrichment analysis
+# a. load downloaded genesets from MsigDB
+```{r}
+aging_signature_HSC<- list(aging_HSC = aging_markers_hsc)
+
+m8_genesets<-read_gmt('gene_sets/m8.all.v2024.1.Mm.symbols.gmt.txt')
+mh_genesets<-read_gmt('gene_sets/mh.all.v2024.1.Mm.symbols.gmt.txt')
+gobp_genesets<-read_gmt('gene_sets/m5.go.bp.v2024.1.Mm.symbols.gmt.txt')
+gocc_genesets<-read_gmt('gene_sets/m5.go.cc.v2024.1.Mm.symbols.gmt.txt')
+gomf_genesets<-read_gmt('gene_sets/m5.go.mf.v2024.1.Mm.symbols.gmt.txt')
+reactome_genesets<-read_gmt('gene_sets/m2.cp.reactome.v2024.1.Mm.symbols.gmt.txt')
+
+Reactome_Regulation_Endogenous_Retroelement<-reactome_genesets["REACTOME_REGULATION_OF_ENDOGENOUS_RETROELEMENTS"]
+write.table(Reactome_Regulation_Endogenous_Retroelement, file = "Reactome_Regulation_Endogenous_Retroelement.txt", 
+            quote = FALSE, 
+            sep = "\t", 
+            row.names = FALSE, 
+            col.names = FALSE)
+
+```
+
+# b. LT-HSC YA vs YC GSEA
+
+# -> hallmark genesets
+```{R}
+
+LT_HSC_YAvsYCWilcox.ordered<-YAvsYCWilcox %>% 
+  dplyr::filter(p_val <= 0.01)
+
+LT_HSC_YAvsYCWilcox.ordered[order(LT_HSC_YAvsYCWilcox.ordered$avg_log2FC, decreasing = T),]
+ 
+LT_HSC_YAvsYCWilcox.ranks<- LT_HSC_YAvsYCWilcox.ordered$avg_log2FC
+names(LT_HSC_YAvsYCWilcox.ranks)<-rownames(LT_HSC_YAvsYCWilcox.ordered)
+
+LT_HSC_YA_vs_YC_mh<- fgseaMultilevel(pathways = mh_genesets, 
+                  stats =LT_HSC_YAvsYCWilcox.ranks,
+                  minSize=5,
+                  maxSize=1000, 
+                  nPermSimple = 10000,
+                  gseaParam = T)
+
+# Extract the number of genes in the leading edge for each gene set
+LT_HSC_YA_vs_YC_mh$numLeadingEdgeGenes <- sapply(LT_HSC_YA_vs_YC_mh$leadingEdge, length)
+
+LT_HSC_YA_vs_YC_mh$geneRatio<-LT_HSC_YA_vs_YC_mh$numLeadingEdgeGenes/LT_HSC_YA_vs_YC_mh$size
+
+# View the results with the number of genes in the leading edge
+LT_HSC_YA_vs_YC_mh<-LT_HSC_YA_vs_YC_mh[, c("pathway", "pval", "padj", "log2err", "ES", "NES", "size","numLeadingEdgeGenes", "geneRatio")] %>%
+  as_tibble() %>%
+  arrange(padj) %>%
+  dplyr::filter(padj <= 0.05) %>%
+  dplyr::filter(abs(NES) >= 1.5) %>%
+  as.data.frame()
+
+  
+  xlsx::write.xlsx(LT_HSC_YA_vs_YC_mh, "2025-02-18_Hallmark_LT-HSC_YAvsYC.xlsx")
+
+# Sort by geneRatio
+LT_HSC_YA_vs_YC_mh_sorted <- LT_HSC_YA_vs_YC_mh %>%
+  arrange(desc(geneRatio))
+
+# Create dot plot using ggplot2
+LT_HSC_YA_vs_YC_mh_reordered<-ggplot(head(LT_HSC_YA_vs_YC_mh_sorted , 17), aes(x = geneRatio, y = reorder(pathway, geneRatio))) +
+  geom_point(aes(size = -log10(padj), color = NES), show.legend = TRUE) +
+  scale_color_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  labs(x = "Gene Ratio", y = "Pathway", color = "NES", size = "-log10(padj)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + labs(title="Hallmarks in LT-HSC YA vs YC") 
+
+  ggsave("2025-02-18_LT-HSC_Hallmarks_YA-vs-YC.pdf",  LT_HSC_YA_vs_YC_mh_reordered, width =8, height = 8, units = c("in"))
+
+```
+
+# -> GO Biological processes
+```{r}
+LT_HSC_YAvsYCWilcox.ordered<-YAvsYCWilcox %>% 
+  dplyr::filter(p_val <= 0.01)
+
+LT_HSC_YAvsYCWilcox.ordered[order(LT_HSC_YAvsYCWilcox.ordered$avg_log2FC, decreasing = T),]
+ 
+LT_HSC_YAvsYCWilcox.ranks<- LT_HSC_YAvsYCWilcox.ordered$avg_log2FC
+names(LT_HSC_YAvsYCWilcox.ranks)<-rownames(LT_HSC_YAvsYCWilcox.ordered)
+
+LT_HSC_YA_vs_YC_gobp <- fgseaMultilevel(pathways = gobp_genesets, 
+                  stats =LT_HSC_YAvsYCWilcox.ranks,
+                  minSize=5,
+                  maxSize=1000, 
+                  nPermSimple = 10000,
+                  gseaParam = T) 
+
+# Extract the number of genes in the leading edge for each gene set
+LT_HSC_YA_vs_YC_gobp$numLeadingEdgeGenes <- sapply(LT_HSC_YA_vs_YC_gobp$leadingEdge, length)
+
+LT_HSC_YA_vs_YC_gobp$geneRatio<-LT_HSC_YA_vs_YC_gobp$numLeadingEdgeGenes/LT_HSC_YA_vs_YC_gobp$size
+
+# View the results with the number of genes in the leading edge
+LT_HSC_YA_vs_YC_gobp<-LT_HSC_YA_vs_YC_gobp[, c("pathway", "pval", "padj", "log2err", "ES", "NES", "size","numLeadingEdgeGenes", "geneRatio")] %>%
+  as_tibble() %>%
+  arrange(padj) %>%
+  dplyr::filter(padj <= 0.05) %>%
+  dplyr::filter(abs(NES) >= 1.5) %>% 
+  as.data.frame()
+
+  xlsx::write.xlsx(LT_HSC_YA_vs_YC_gobp, "2025-02-18_GO-Biological-Processes_LT-HSC_YAvsYC.xlsx")
+
+   # Sort by geneRatio
+LT_HSC_YA_vs_YC_gobp_sorted <- LT_HSC_YA_vs_YC_gobp %>%
+  arrange(desc(geneRatio))
+
+# Create dot plot using ggplot2
+LT_HSC_YA_vs_YC_gobp_reordered<-ggplot(head(LT_HSC_YA_vs_YC_gobp_sorted, 17), aes(x = geneRatio, y = reorder(pathway, geneRatio))) +
+  geom_point(aes(size = -log10(padj), color = NES), show.legend = TRUE) +
+  scale_color_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  labs(x = "Gene Ratio", y = "Pathway", color = "NES", size = "-log10(padj)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + labs(title="GO BP in LT-HSC YA vs YC") 
+
+  ggsave("2025-02-18_LT-HSC_GOBP_YA-vs-YC.pdf",  LT_HSC_YA_vs_YC_gobp_reordered, width =8, height = 8, units = c("in"))
+  
+
+```
+
+# -> Reactome
+```{R}
+
+LT_HSC_YAvsYCWilcox.ordered<-YAvsYCWilcox %>% 
+  dplyr::filter(p_val <= 0.01)
+
+LT_HSC_YAvsYCWilcox.ordered[order(LT_HSC_YAvsYCWilcox.ordered$avg_log2FC, decreasing = T),]
+ 
+LT_HSC_YAvsYCWilcox.ranks<- LT_HSC_YAvsYCWilcox.ordered$avg_log2FC
+names(LT_HSC_YAvsYCWilcox.ranks)<-rownames(LT_HSC_YAvsYCWilcox.ordered)
+
+
+
+LT_HSC_YAvsYCWilcox_reactome <- fgseaMultilevel(pathways = reactome_genesets, 
+                  stats =LT_HSC_YAvsYCWilcox.ranks,
+                  minSize=5,
+                  maxSize=1000, 
+                  nPermSimple = 10000,
+                  gseaParam = T) 
+
+# Extract the number of genes in the leading edge for each gene set
+LT_HSC_YAvsYCWilcox_reactome$numLeadingEdgeGenes <- sapply(LT_HSC_YAvsYCWilcox_reactome$leadingEdge, length)
+
+LT_HSC_YAvsYCWilcox_reactome$geneRatio<-LT_HSC_YAvsYCWilcox_reactome$numLeadingEdgeGenes/LT_HSC_YAvsYCWilcox_reactome$size
+
+# View the results with the number of genes in the leading edge
+LT_HSC_YAvsYCWilcox_reactome<-LT_HSC_YAvsYCWilcox_reactome[, c("pathway", "pval", "padj", "log2err", "ES", "NES", "size","numLeadingEdgeGenes", "geneRatio")] %>%
+  as_tibble() %>%
+  arrange(padj) %>%
+  dplyr::filter(padj <= 0.05) %>%
+  dplyr::filter(abs(NES) >= 1.5) %>%
+  as.data.frame()
+
+  xlsx::write.xlsx(LT_HSC_YAvsYCWilcox_reactome, "2025-02-18_Reactome_LT-HSC_YAvsYC.xlsx")
+  
+  # Sort by geneRatio
+LT_HSC_YAvsYCWilcox_reactome_sorted <- LT_HSC_YAvsYCWilcox_reactome %>%
+  arrange(desc(geneRatio))
+
+# Create dot plot using ggplot2
+LT_HSC_YAvsYCWilcox_reactome_reordered<-ggplot(head(LT_HSC_YAvsYCWilcox_reactome_sorted, 50), aes(x = geneRatio, y = reorder(pathway, geneRatio))) +
+  geom_point(aes(size = -log10(padj), color = NES), show.legend = TRUE) +
+  scale_color_gradient(low = "blue", high = "red") +
+  #theme_minimal() +
+  labs(x = "Gene Ratio", y = "Pathway", color = "NES", size = "-log10(padj)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + labs(title="Reactome in LT-HSC YA vs YC") 
+  
+  ggsave("2025-02-18_LT-HSC_Reactome_YA-vs-YC.pdf", LT_HSC_YAvsYCWilcox_reactome_reordered, width =12, height = 14, units = c("in"))
+  
+```
+
+# -> Combine all gene sets
+```{r}
+#since the hallmark gsea results in only 2 enriched pathways, then we will take all of them
+
+LTHSC_YAvsYC_hallmarks_selected<-LT_HSC_YA_vs_YC_mh
+LTHSC_YAvsYC_reactome_selected<-LT_HSC_YAvsYCWilcox_reactome
+LT_HSC_YA_vs_YC_gobp_selected<-LT_HSC_YA_vs_YC_gobp
+
+LT_HSC_YA_vs_YC_selected_enrichment<- rbind(LTHSC_YAvsYC_hallmarks_selected, LTHSC_YAvsYC_reactome_selected, LT_HSC_YA_vs_YC_gobp_selected) %>%
+  arrange(desc(geneRatio))
+
+# Create dot plot using ggplot2
+LT_HSC_YA_vs_YC_selected_enrichment_plot<-ggplot(LT_HSC_YA_vs_YC_selected_enrichment, aes(x = geneRatio, y = reorder(pathway, geneRatio))) +
+  geom_point(aes(size = -log10(padj), color = NES), show.legend = TRUE) +
+  scale_color_gradient(low = "blue", high = "red", space = "Lab", aesthetics = "colour") +
+  theme_minimal() +
+  labs(x = "Gene Ratio", y = "Pathway", color = "NES", size = "-log10(padj)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + labs(title="LT-HSC YA vs YC Top Enrichment") 
+  
+  ggsave("2025-02-18_LT-HSC_YA-vs-YC_Top_Enrichment.pdf", LT_HSC_YA_vs_YC_selected_enrichment_plot, width =10, height = 5, units = c("in"))
+
+  
+LT_HSC_YA_vs_YC_combined_all_enriched_pathways<- rbind(LT_HSC_YA_vs_YC_mh, LT_HSC_YAvsYCWilcox_reactome, LT_HSC_YA_vs_YC_gobp)
+
+  xlsx::write.xlsx(LT_HSC_YA_vs_YC_combined_all_enriched_pathways, "2025-10-29_LT_HSC_YA_vs_YC_combined_all_enriched_pathways.xlsx")
+
+#### Barplot  
+  LT_HSC_YA_vs_YC_selected_enrichment_barplot<-ggplot(LT_HSC_YA_vs_YC_selected_enrichment, aes(reorder(pathway, NES), NES, fill = NES)) +
+  geom_col() +
+  coord_flip() +
+  labs(x = "Pathway", y = "Normalized Enrichment Score (NES)",
+       title = "GSEA Results") +
+  theme_minimal() +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0)
+
+ ggsave("2025-02-18_LT-HSC_YA-vs-YC_Top_Enrichment_BARPLOT.pdf.pdf", LT_HSC_YA_vs_YC_selected_enrichment_barplot, width =6, height = 6, units = c("in"))
+  
+```
+
+
+# c. LT-HSC OA vs OC GSEA
+# -> M8 genesets
+```{R}
+
+LT_HSC_OAvsOCWilcox.ordered<-OAvsOCWilcox %>% 
+  dplyr::filter(p_val <= 0.01)
+
+LT_HSC_OAvsOCWilcox.ordered[order(LT_HSC_OAvsOCWilcox.ordered$avg_log2FC, decreasing = T),]
+ 
+LT_HSC_OAvsOCWilcox.ranks<- LT_HSC_OAvsOCWilcox.ordered$avg_log2FC
+names(LT_HSC_OAvsOCWilcox.ranks)<-rownames(LT_HSC_OAvsOCWilcox.ordered)
+
+
+LT_HSC_OA_vs_OC_M8 <- fgseaMultilevel(pathways = m8_genesets, 
+                  stats =LT_HSC_OAvsOCWilcox.ranks,
+                  minSize=5,
+                  maxSize=1000, 
+                  nPermSimple = 10000,
+                  gseaParam = T)
+
+
+# Extract the number of genes in the leading edge for each gene set
+LT_HSC_OA_vs_OC_M8$numLeadingEdgeGenes <- sapply(LT_HSC_OA_vs_OC_M8$leadingEdge, length)
+
+LT_HSC_OA_vs_OC_M8$geneRatio<-LT_HSC_OA_vs_OC_M8$numLeadingEdgeGenes/LT_HSC_OA_vs_OC_M8$size
+
+# View the results with the number of genes in the leading edge
+LT_HSC_OA_vs_OC_M8<-LT_HSC_OA_vs_OC_M8[, c("pathway", "pval", "padj", "log2err", "ES", "NES", "size","numLeadingEdgeGenes", "geneRatio")] %>%
+  as_tibble() %>%
+  arrange(padj) %>%
+  dplyr::filter(padj <= 0.05) %>% as.data.frame()
+
+  
+  xlsx::write.xlsx(LT_HSC_OA_vs_OC_M8, "2025-02-18_M8_LT-HSC_OAvsOC.xlsx")
+
+ LT_HSC_OAvsOC_M8<-ggplot(head(LT_HSC_OA_vs_OC_M8, 20), aes(y = pathway, x = NES, size = geneRatio)) + 
+  geom_point(aes(color = -log10(padj), size= geneRatio)) +
+   scale_color_gradient(name = waiver(), low = "blue", high = "red", space = "Lab", aesthetics = "colour")+ labs(x="Normalized Enrichment Score (NES)", y="Pathways",
+       title="Tabula Murris in LT-HSC OA vs OC")
+
+  ggsave("2025-01-24_LT-HSC_Tabula-Murris_OA-vs-OC.pdf", LT_HSC_OAvsOC_M8, width =12, height = 8, units = c("in"))
+
+
+```
+
+# -> hallmark genesets
+```{R}
+
+LT_HSC_OAvsOCWilcox.ordered<-OAvsOCWilcox %>% 
+  dplyr::filter(p_val <= 0.01)
+
+LT_HSC_OAvsOCWilcox.ordered[order(LT_HSC_OAvsOCWilcox.ordered$avg_log2FC, decreasing = T),]
+ 
+LT_HSC_OAvsOCWilcox.ranks<- LT_HSC_OAvsOCWilcox.ordered$avg_log2FC
+names(LT_HSC_OAvsOCWilcox.ranks)<-rownames(LT_HSC_OAvsOCWilcox.ordered)
+
+LT_HSC_OA_vs_OC_mh<- fgseaMultilevel(pathways = mh_genesets, 
+                  stats =LT_HSC_OAvsOCWilcox.ranks,
+                  minSize=5,
+                  maxSize=1000, 
+                  nPermSimple = 10000,
+                  gseaParam = T)
+
+# Extract the number of genes in the leading edge for each gene set
+LT_HSC_OA_vs_OC_mh$numLeadingEdgeGenes <- sapply(LT_HSC_OA_vs_OC_mh$leadingEdge, length)
+
+LT_HSC_OA_vs_OC_mh$geneRatio<-LT_HSC_OA_vs_OC_mh$numLeadingEdgeGenes/LT_HSC_OA_vs_OC_mh$size
+
+# View the results with the number of genes in the leading edge
+LT_HSC_OA_vs_OC_mh<-LT_HSC_OA_vs_OC_mh[, c("pathway", "pval", "padj", "log2err", "ES", "NES", "size","numLeadingEdgeGenes", "geneRatio")] %>%
+  as_tibble() %>%
+  arrange(padj) %>%
+  dplyr::filter(padj <= 0.05) %>% 
+  dplyr::filter(abs(NES) >= 1.5) %>%
+  as.data.frame()
+
+  
+  xlsx::write.xlsx(LT_HSC_OA_vs_OC_mh, "2025-02-18_Hallmark_LT-HSC_OAvsOC.xlsx")
+
+# Sort by geneRatio
+LT_HSC_OA_vs_OC_mh_sorted <- LT_HSC_OA_vs_OC_mh %>%
+  arrange(desc(geneRatio))
+
+# Create dot plot using ggplot2
+LT_HSC_OA_vs_OC_mh_reordered<-ggplot(head(LT_HSC_OA_vs_OC_mh_sorted , 17), aes(x = geneRatio, y = reorder(pathway, geneRatio))) +
+  geom_point(aes(size = -log10(padj), color = NES), show.legend = TRUE) +
+  scale_color_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  labs(x = "Gene Ratio", y = "Pathway", color = "NES", size = "-log10(padj)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + labs(title="Hallmarks in LT-HSC OA vs OC") 
+
+  ggsave("2025-02-18_LT-HSC_Hallmarks_OA-vs-OC.pdf",  LT_HSC_OA_vs_OC_mh_reordered, width =8, height = 8, units = c("in"))
+
+```
+
+# -> GO Biological processes
+```{r}
+LT_HSC_OAvsOCWilcox.ordered<-OAvsOCWilcox %>% 
+  dplyr::filter(p_val <= 0.01)
+
+LT_HSC_OAvsOCWilcox.ordered[order(LT_HSC_OAvsOCWilcox.ordered$avg_log2FC, decreasing = T),]
+ 
+LT_HSC_OAvsOCWilcox.ranks<- LT_HSC_OAvsOCWilcox.ordered$avg_log2FC
+names(LT_HSC_OAvsOCWilcox.ranks)<-rownames(LT_HSC_OAvsOCWilcox.ordered)
+
+LT_HSC_OA_vs_OC_gobp <- fgseaMultilevel(pathways = gobp_genesets, 
+                  stats =LT_HSC_OAvsOCWilcox.ranks,
+                  minSize=5,
+                  maxSize=1000, 
+                  nPermSimple = 10000,
+                  gseaParam = T) 
+
+# Extract the number of genes in the leading edge for each gene set
+LT_HSC_OA_vs_OC_gobp$numLeadingEdgeGenes <- sapply(LT_HSC_OA_vs_OC_gobp$leadingEdge, length)
+
+LT_HSC_OA_vs_OC_gobp$geneRatio<-LT_HSC_OA_vs_OC_gobp$numLeadingEdgeGenes/LT_HSC_OA_vs_OC_gobp$size
+
+# View the results with the number of genes in the leading edge
+LT_HSC_OA_vs_OC_gobp<-LT_HSC_OA_vs_OC_gobp[, c("pathway", "pval", "padj", "log2err", "ES", "NES", "size","numLeadingEdgeGenes", "geneRatio")] %>%
+  as_tibble() %>%
+  arrange(padj) %>%
+  dplyr::filter(padj <= 0.05) %>% 
+  dplyr::filter(abs(NES) >= 1.5) %>%
+  as.data.frame()
+
+  xlsx::write.xlsx(LT_HSC_OA_vs_OC_gobp, "2025-02-18_GO-Biological-Processes_LT-HSC_OAvsOC.xlsx")
+
+   # Sort by geneRatio
+LT_HSC_OA_vs_OC_gobp_sorted <- LT_HSC_OA_vs_OC_gobp %>%
+  arrange(desc(geneRatio))
+
+# Create dot plot using ggplot2
+LT_HSC_OA_vs_OC_gobp_reordered<-ggplot(head(LT_HSC_OA_vs_OC_gobp_sorted, 17), aes(x = geneRatio, y = reorder(pathway, geneRatio))) +
+  geom_point(aes(size = -log10(padj), color = NES), show.legend = TRUE) +
+  scale_color_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  labs(x = "Gene Ratio", y = "Pathway", color = "NES", size = "-log10(padj)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + labs(title="GO BP in LT-HSC OA vs OC") 
+
+  ggsave("2025-02-18_LT-HSC_GOBP_OA-vs-OC.pdf",  LT_HSC_OA_vs_OC_gobp_reordered, width =10, height = 8, units = c("in"))
+
+```
+
+```{r}
+LT_HSC_OA_vs_OC_aging_signature<- fgseaMultilevel(pathways = aging_signature_HSC, 
+                  stats =LT_HSC_OAvsOCWilcox.ranks,
+                  minSize=5,
+                  maxSize=1000, 
+                  nPermSimple = 10000,
+                  gseaParam = T) 
+
+```
+
+# -> Reactome
+```{R}
+
+LT_HSC_OAvsOCWilcox.ordered<-OAvsOCWilcox %>% 
+  dplyr::filter(p_val <= 0.01)
+
+LT_HSC_OAvsOCWilcox.ordered[order(LT_HSC_OAvsOCWilcox.ordered$avg_log2FC, decreasing = T),]
+ 
+LT_HSC_OAvsOCWilcox.ranks<- LT_HSC_OAvsOCWilcox.ordered$avg_log2FC
+names(LT_HSC_OAvsOCWilcox.ranks)<-rownames(LT_HSC_OAvsOCWilcox.ordered)
+
+
+LT_HSC_OA_vs_OC_reactome <- fgseaMultilevel(pathways = reactome_genesets, 
+                  stats =LT_HSC_OAvsOCWilcox.ranks,
+                  minSize=5,
+                  maxSize=1000, 
+                  nPermSimple = 10000,
+                  gseaParam = T) 
+
+# Extract the number of genes in the leading edge for each gene set
+LT_HSC_OA_vs_OC_reactome$numLeadingEdgeGenes <- sapply(LT_HSC_OA_vs_OC_reactome$leadingEdge, length)
+
+LT_HSC_OA_vs_OC_reactome$geneRatio<-LT_HSC_OA_vs_OC_reactome$numLeadingEdgeGenes/LT_HSC_OA_vs_OC_reactome$size
+
+# View the results with the number of genes in the leading edge
+LT_HSC_OA_vs_OC_reactome<-LT_HSC_OA_vs_OC_reactome[, c("pathway", "pval", "padj", "log2err", "ES", "NES", "size","numLeadingEdgeGenes", "geneRatio")] %>%
+  as_tibble() %>%
+  arrange(padj) %>%
+  dplyr::filter(padj <= 0.05) %>%
+  dplyr::filter(abs(NES) >= 1.5) %>%
+  as.data.frame()
+
+  xlsx::write.xlsx(LT_HSC_OA_vs_OC_reactome, "2025-02-18_Reactome_LT-HSC_OAvsOC.xlsx")
+  
+  # Sort by geneRatio
+LT_HSC_OA_vs_OC_reactome_sorted <- LT_HSC_OA_vs_OC_reactome %>%
+  arrange(desc(geneRatio))
+
+# Create dot plot using ggplot2
+LT_HSC_OAvsOC_reactome_reordered<-ggplot(head(LT_HSC_OA_vs_OC_reactome_sorted, 50), aes(x = geneRatio, y = reorder(pathway, geneRatio))) +
+  geom_point(aes(size = -log10(padj), color = NES), show.legend = TRUE) +
+  scale_color_gradient(low = "blue", high = "red") +
+  #theme_minimal() +
+  labs(x = "Gene Ratio", y = "Pathway", color = "NES", size = "-log10(padj)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + labs(title="Reactome in LT-HSC OA vs OC") 
+  
+  ggsave("2025-02-18_LT-HSC_Reactome_OA-vs-OC.pdf", LT_HSC_OAvsOC_reactome_reordered, width =12, height = 14, units = c("in"))
+  
+```
+
+
+# -> Combine some selected gsea results from hallmarks, go bp and reactome and plot them for LT-HSC OA vs OC
+```{R}
+#since the hallmark gsea results in only 2 enriched pathways, then we will take all of them
+LTHSC_OAvsOC_enrichment_Results<-rbind(LT_HSC_OA_vs_OC_mh, LT_HSC_OA_vs_OC_reactome, LT_HSC_OA_vs_OC_gobp)
+
+  xlsx::write.xlsx(LTHSC_OAvsOC_enrichment_Results, "2025-10-29_LT_HSC_OA_vs_OC_combined_all_enriched_pathways.xlsx")
+
+
+LTHSC_OAvsOC_hallmarks_selected<-LT_HSC_OA_vs_OC_mh
+LTHSC_OAvsOC_reactome_selected<-LT_HSC_OA_vs_OC_reactome[1:20,]
+LT_HSC_OA_vs_OC_gobp_selected<-LT_HSC_OA_vs_OC_gobp
+
+LT_HSC_OA_vs_OC_selected_enrichment<- rbind(LTHSC_OAvsOC_hallmarks_selected, LTHSC_OAvsOC_reactome_selected, LT_HSC_OA_vs_OC_gobp_selected) %>%
+  arrange(desc(geneRatio))
+
+# Create dot plot using ggplot2
+LT_HSC_OA_vs_OC_selected_enrichment_plot<-ggplot(LT_HSC_OA_vs_OC_selected_enrichment, aes(x = geneRatio, y = reorder(pathway, geneRatio))) +
+  geom_point(aes(size = -log10(padj), color = NES), show.legend = TRUE) +
+  scale_color_gradient(low = "blue", high = "red", space = "Lab", aesthetics = "colour") +
+  theme_minimal() +
+  labs(x = "Gene Ratio", y = "Pathway", color = "NES", size = "-log10(padj)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + labs(title="LT-HSC OA vs OC Top Enrichment") 
+  
+  ggsave("2025-02-18_LT-HSC_OA-vs-OC_Top_Enrichment.pdf", LT_HSC_OA_vs_OC_selected_enrichment_plot, width =12, height = 12, units = c("in"))
+
+### Create barplot of GSEA OA vs OC LT-HSC
+  
+LT_HSC_OA_vs_OC_selected_enrichment_barplot<-ggplot(LT_HSC_OA_vs_OC_selected_enrichment, aes(reorder(pathway, NES), NES, fill = NES)) +
+  geom_col() +
+  coord_flip() +
+  labs(x = "Pathway", y = "Normalized Enrichment Score (NES)",
+       title = "GSEA Results") +
+  theme_minimal() +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0)
+
+ ggsave("2025-05-20_LT-HSC_OA-vs-OC_Top_Enrichment_barplot.pdf", LT_HSC_OA_vs_OC_selected_enrichment_barplot, width =12, height = 10, units = c("in"))
+```
+
+
+# -> Selected GSEA to map
+```{r}
+#### Selected top GSEA pathways
+selectedPathway<-c("GOBP_PROTON_MOTIVE_FORCE_DRIVEN_ATP_SYNTHESIS",
+          "REACTOME_EPIGENETIC_REGULATION_OF_GENE_EXPRESSION",
+          "REACTOME_REGULATION_OF_ENDOGENOUS_RETROELEMENTS",
+          "REACTOME_PRC2_METHYLATES_HISTONES_AND_DNA",
+          "REACTOME_HDACS_DEACETYLATE_HISTONES",
+          "REACTOME_CELLULAR_SENESCENCE",
+          "REACTOME_BASE_EXCISION_REPAIR_AP_SITE_FORMATION",
+          "REACTOME_DNA_DAMAGE_TELOMERE_STRESS_INDUCED_SENESCENCE",
+          "HALLMARK_E2F_TARGETS",
+          "REACTOME_CELL_CYCLE",
+          "REACTOME_MITOTIC_PROPHASE",
+          "HALLMARK_TNFA_SIGNALING_VIA_NFKB",
+          "GOBP_NADH_DEHYDROGENASE_COMPLEX_ASSEMBLY")
+
+LT_HSC_OA_vs_OC_selectedPath<-LT_HSC_OA_vs_OC_selected_enrichment %>%
+  dplyr::filter(LT_HSC_OA_vs_OC_selected_enrichment$pathway %in% selectedPathway) %>%
+  arrange(desc(geneRatio))
+
+# Create dot plot using ggplot2
+selectedPathway_LTHSC_OAvsOC<-ggplot(LT_HSC_OA_vs_OC_selectedPath, aes(x = geneRatio, y = reorder(pathway, geneRatio))) +
+  geom_point(aes(size = -log10(padj), color = NES), show.legend = TRUE) +
+  scale_color_gradient(low = "blue", high = "red", space = "Lab", aesthetics = "colour") +
+  theme_minimal() +
+  labs(x = "Gene Ratio", y = "Pathway", color = "NES", size = "-log10(padj)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + labs(title="LT-HSC OA vs OC selected Top Enrichment") 
+  
+  ggsave("2025-02-18_LT-HSC_OA-vs-OC_Top_selected_Enrichment.pdf", selectedPathway_LTHSC_OAvsOC, width =8, height = 8, units = c("in"))
+  
+```
+
+
+# -> Combine all gene-set results
+```{r}
+LT_HSC_OA_vs_OC_combined_all_enriched_pathways<- rbind(LT_HSC_OA_vs_OC_mh, LT_HSC_OA_vs_OC_gobp, LT_HSC_OA_vs_OC_reactome) %>%
+  arrange(desc(geneRatio))
+
+  xlsx::write.xlsx(LT_HSC_OA_vs_OC_combined_all_enriched_pathways, "2025-02-18_LT_HSC_OA_vs_OC_combined_all_enriched_pathways.xlsx")
+ 
+#### Barplots of aging and immune pathways
+inflammaging<-c("REACTOME_DNA_DAMAGE_TELOMERE_STRESS_INDUCED_SENESCENCE",
+                 "REACTOME_INHIBITION_OF_DNA_RECOMBINATION_AT_TELOMERE",
+                 "REACTOME_CELLULAR_SENESCENCE",
+                 "REACTOME_PROCESSING_OF_DNA_DOUBLE_STRAND_BREAK_ENDS",
+                 "REACTOME_DNA_REPAIR", 
+                 "REACTOME_G2_M_DNA_DAMAGE_CHECKPOINT", 
+                "HALLMARK_TNFA_SIGNALING_VIA_NFKB",
+                  "REACTOME_ANTIMICROBIAL_PEPTIDES", 
+                  "GOBP_RESPONSE_TO_BACTERIUM",
+                  "GOBP_LEUKOCYTE_CHEMOTAXIS",
+                  "REACTOME_INTERLEUKIN_7_SIGNALING",
+                  "GOBP_HUMORAL_IMMUNE_RESPONSE",
+                  "GOBP_DEFENSE_RESPONSE_TO_BACTERIUM",
+                  "GOBP_MYELOID_LEUKOCYTE_MIGRATION",
+                  "REACTOME_REGULATION_OF_TLR_BY_ENDOGENOUS_LIGAND",
+                  "REACTOME_INNATE_IMMUNE_SYSTEM",
+                  "GOBP_RESPONSE_TO_BACTERIUM",
+                  "GOBP_LEUKOCYTE_MIGRATION_INVOLVED_IN_INFLAMMATORY_RESPONSE",
+                  "REACTOME_ROS_AND_RNS_PRODUCTION_IN_PHAGOCYTES",
+                  "REACTOME_FCGR_ACTIVATION",
+                  "GOBP_NEUTROPHIL_CHEMOTAXIS",
+                  "REACTOME_NEUTROPHIL_DEGRANULATION"
+                 )
+
+LT_HSC_OA_vs_OC_inflammaging_pathway<-LT_HSC_OA_vs_OC_combined_all_enriched_pathways %>%
+  dplyr::filter(LT_HSC_OA_vs_OC_combined_all_enriched_pathways$pathway %in% inflammaging) %>%
+  arrange(desc(geneRatio))
+  
+inflammaging_LTHSC_OAvsOC<-ggplot(LT_HSC_OA_vs_OC_inflammaging_pathway, aes(reorder(pathway, NES), NES, fill = NES)) +
+  geom_col() +
+  coord_flip() +
+  labs(x = "Pathway", y = "Normalized Enrichment Score (NES)",
+       title = "GSEA Results") +
+  theme_minimal() +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0)
+
+ ggsave("2025-03-01_LT-HSC_OA-vs-OC_InflammagingPathways.pdf", inflammaging_LTHSC_OAvsOC, width =10, height = 8, units = c("in"))
+
+ 
+LT_HSC_OA_vs_OC_inflammaging_dotplot<-ggplot(LT_HSC_OA_vs_OC_inflammaging_pathway, aes(x = geneRatio, y = reorder(pathway, geneRatio))) +
+  geom_point(aes(size = -log10(padj), color = NES), show.legend = TRUE) +
+  scale_color_gradient(low = "blue", high = "red", space = "Lab", aesthetics = "colour") +
+  theme_minimal() +
+  labs(x = "Gene Ratio", y = "Pathway", color = "NES", size = "-log10(padj)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + labs(title="LT-HSC OA vs OC Top Enrichment") 
+  
+  ggsave("2025-02-18_LT-HSC_OA-vs-OC_Inflammaging-dotplot.pdf", LT_HSC_OA_vs_OC_inflammaging_dotplot, width =12, height = 14, units = c("in"))
+```
+
+#d. LT-HSC OC vs YC
+#-> hallmark gene sets
+```{R}
+# Filter DEGs: OC vs YC
+LT_HSC_OCvsYCWilcox.ordered <- OCvsYCWilcox %>% 
+  dplyr::filter(p_val <= 0.01)
+
+# Order by log2FC
+LT_HSC_OCvsYCWilcox.ordered <- LT_HSC_OCvsYCWilcox.ordered[order(LT_HSC_OCvsYCWilcox.ordered$avg_log2FC, decreasing = TRUE), ]
+
+# Create ranked gene list
+LT_HSC_OCvsYCWilcox.ranks <- LT_HSC_OCvsYCWilcox.ordered$avg_log2FC
+names(LT_HSC_OCvsYCWilcox.ranks) <- rownames(LT_HSC_OCvsYCWilcox.ordered)
+
+# Run GSEA with fgseaMultilevel
+LT_HSC_OC_vs_YC_mh <- fgseaMultilevel(
+  pathways = mh_genesets, 
+  stats = LT_HSC_OCvsYCWilcox.ranks,
+  minSize = 5,
+  maxSize = 1000, 
+  nPermSimple = 10000,
+  gseaParam = TRUE
+)
+
+# Calculate leading edge gene stats
+LT_HSC_OC_vs_YC_mh$numLeadingEdgeGenes <- sapply(LT_HSC_OC_vs_YC_mh$leadingEdge, length)
+LT_HSC_OC_vs_YC_mh$geneRatio <- LT_HSC_OC_vs_YC_mh$numLeadingEdgeGenes / LT_HSC_OC_vs_YC_mh$size
+
+# Clean up and filter by adjusted p-value
+LT_HSC_OC_vs_YC_mh <- LT_HSC_OC_vs_YC_mh[, c("pathway", "pval", "padj", "log2err", "ES", "NES", "size", "numLeadingEdgeGenes", "geneRatio")] %>%
+  as_tibble() %>%
+  arrange(padj) %>%
+  dplyr::filter(padj <= 0.05) %>%
+  dplyr::filter(abs(NES) >= 1.5) %>%
+  as.data.frame()
+
+# Export results to Excel
+xlsx::write.xlsx(LT_HSC_OC_vs_YC_mh, "2025-02-18_Hallmark_LT-HSC_OCvsYC.xlsx")
+
+# Sort by gene ratio
+LT_HSC_OC_vs_YC_mh_sorted <- LT_HSC_OC_vs_YC_mh %>%
+  arrange(desc(geneRatio))
+
+# Dot plot of top 17 enriched gene sets
+LT_HSC_OC_vs_YC_mh_reordered <- ggplot(head(LT_HSC_OC_vs_YC_mh_sorted, 17), aes(x = geneRatio, y = reorder(pathway, geneRatio))) +
+  geom_point(aes(size = -log10(padj), color = NES), show.legend = TRUE) +
+  scale_color_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  labs(
+    title = "Hallmarks in LT-HSC OC vs YC",
+    x = "Gene Ratio",
+    y = "Pathway",
+    color = "NES",
+    size = "-log10(padj)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Save dot plot
+ggsave("2025-02-18_LT-HSC_Hallmarks_OC-vs-YC.pdf", LT_HSC_OC_vs_YC_mh_reordered, width = 8, height = 8, units = "in")
+
+```
+
+#-> GO Biological processes
+```{r}
+# Filter DEGs for OC vs YC (adjust as needed based on your object)
+LT_HSC_OCvsYCWilcox.ordered <- OCvsYCWilcox %>%
+  dplyr::filter(p_val <= 0.01)
+
+# Order by log2FC
+LT_HSC_OCvsYCWilcox.ordered <- LT_HSC_OCvsYCWilcox.ordered[order(LT_HSC_OCvsYCWilcox.ordered$avg_log2FC, decreasing = TRUE), ]
+
+# Create ranked gene list
+LT_HSC_OCvsYCWilcox.ranks <- LT_HSC_OCvsYCWilcox.ordered$avg_log2FC
+names(LT_HSC_OCvsYCWilcox.ranks) <- rownames(LT_HSC_OCvsYCWilcox.ordered)
+
+# Run fgseaMultilevel for GO Biological Processes
+LT_HSC_OC_vs_YC_gobp <- fgseaMultilevel(
+  pathways = gobp_genesets, 
+  stats = LT_HSC_OCvsYCWilcox.ranks,
+  minSize = 5,
+  maxSize = 1000, 
+  nPermSimple = 10000,
+  gseaParam = TRUE
+)
+
+# Count leading edge genes
+LT_HSC_OC_vs_YC_gobp$numLeadingEdgeGenes <- sapply(LT_HSC_OC_vs_YC_gobp$leadingEdge, length)
+
+# Compute gene ratios
+LT_HSC_OC_vs_YC_gobp$geneRatio <- LT_HSC_OC_vs_YC_gobp$numLeadingEdgeGenes / LT_HSC_OC_vs_YC_gobp$size
+
+# Filter and clean up table
+LT_HSC_OC_vs_YC_gobp <- LT_HSC_OC_vs_YC_gobp[, c("pathway", "pval", "padj", "log2err", "ES", "NES", "size", "numLeadingEdgeGenes", "geneRatio")] %>%
+  as_tibble() %>%
+  arrange(padj) %>%
+  dplyr::filter(padj <= 0.05) %>%
+  dplyr::filter(abs(NES) >= 1.5) %>%
+  as.data.frame() 
+
+# Export results to Excel
+xlsx::write.xlsx(LT_HSC_OC_vs_YC_gobp, "2025-02-18_GO-Biological-Processes_LT-HSC_OCvsYC.xlsx")
+
+# Sort by gene ratio
+LT_HSC_OC_vs_YC_gobp_sorted <- LT_HSC_OC_vs_YC_gobp %>%
+  arrange(desc(geneRatio))
+
+# Create dot plot of top 17 enriched GO terms
+LT_HSC_OC_vs_YC_gobp_reordered <- ggplot(head(LT_HSC_OC_vs_YC_gobp_sorted, 17), aes(x = geneRatio, y = reorder(pathway, geneRatio))) +
+  geom_point(aes(size = -log10(padj), color = NES), show.legend = TRUE) +
+  scale_color_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  labs(
+    x = "Gene Ratio",
+    y = "GO Biological Process",
+    color = "NES",
+    size = "-log10(padj)",
+    title = "GO BP in LT-HSC OC vs YC"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Save the dot plot
+ggsave("2025-02-18_LT-HSC_GOBP_OC-vs-YC.pdf", LT_HSC_OC_vs_YC_gobp_reordered, width = 10, height = 8, units = "in")
+
+```
+
+#-> Reactome
+```{r}
+# Step 1: Filter DEGs for OC vs YC
+LT_HSC_OCvsYCWilcox.ordered <- OCvsYCWilcox %>% 
+  dplyr::filter(p_val <= 0.01)
+
+# Step 2: Order by log2FC
+LT_HSC_OCvsYCWilcox.ordered <- LT_HSC_OCvsYCWilcox.ordered[order(LT_HSC_OCvsYCWilcox.ordered$avg_log2FC, decreasing = TRUE), ]
+
+# Step 3: Create ranked gene list for GSEA
+LT_HSC_OCvsYCWilcox.ranks <- LT_HSC_OCvsYCWilcox.ordered$avg_log2FC
+names(LT_HSC_OCvsYCWilcox.ranks) <- rownames(LT_HSC_OCvsYCWilcox.ordered)
+
+# Step 4: Run Reactome GSEA using fgseaMultilevel
+LT_HSC_OC_vs_YC_reactome <- fgseaMultilevel(
+  pathways = reactome_genesets, 
+  stats = LT_HSC_OCvsYCWilcox.ranks,
+  minSize = 5,
+  maxSize = 1000, 
+  nPermSimple = 10000,
+  gseaParam = TRUE
+)
+
+# Step 5: Add leading edge gene stats
+LT_HSC_OC_vs_YC_reactome$numLeadingEdgeGenes <- sapply(LT_HSC_OC_vs_YC_reactome$leadingEdge, length)
+LT_HSC_OC_vs_YC_reactome$geneRatio <- LT_HSC_OC_vs_YC_reactome$numLeadingEdgeGenes / LT_HSC_OC_vs_YC_reactome$size
+
+# Step 6: Filter and format final GSEA results
+LT_HSC_OC_vs_YC_reactome <- LT_HSC_OC_vs_YC_reactome[, c("pathway", "pval", "padj", "log2err", "ES", "NES", "size", "numLeadingEdgeGenes", "geneRatio")] %>%
+  as_tibble() %>%
+  arrange(padj) %>%
+  dplyr::filter(padj <= 0.05) %>%
+  dplyr::filter(abs(NES) >= 1.5) %>%
+  as.data.frame()
+
+# Step 7: Export results to Excel
+xlsx::write.xlsx(LT_HSC_OC_vs_YC_reactome, "2025-02-18_Reactome_LT-HSC_OCvsYC.xlsx")
+
+# Step 8: Sort by gene ratio
+LT_HSC_OC_vs_YC_reactome_sorted <- LT_HSC_OC_vs_YC_reactome %>%
+  arrange(desc(geneRatio))
+
+# Step 9: Create dot plot of top 50 pathways
+LT_HSC_OCvsYC_reactome_reordered <- ggplot(head(LT_HSC_OC_vs_YC_reactome_sorted, 50), 
+                                            aes(x = geneRatio, y = reorder(pathway, geneRatio))) +
+  geom_point(aes(size = -log10(padj), color = NES), show.legend = TRUE) +
+  scale_color_gradient(low = "blue", high = "red") +
+  #theme_minimal() +
+  labs(
+    title = "Reactome in LT-HSC OC vs YC",
+    x = "Gene Ratio",
+    y = "Reactome Pathway",
+    color = "NES",
+    size = "-log10(padj)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Step 10: Save the dot plot
+ggsave("2025-02-18_LT-HSC_Reactome_OC-vs-YC.pdf", 
+       LT_HSC_OCvsYC_reactome_reordered, 
+       width = 12, height = 14, units = "in")
+
+```
+
+#-> combine all the results
+```{r}
+# Rename individual enrichment sets for OC vs YC
+LTHSC_OCvsYC_hallmarks_selected <- LT_HSC_OC_vs_YC_mh
+LTHSC_OCvsYC_reactome_selected <- LT_HSC_OC_vs_YC_reactome[1:10,]
+LT_HSC_OC_vs_YC_gobp_selected <- LT_HSC_OC_vs_YC_gobp[1:10,]
+
+# Combine enrichment sets
+LT_HSC_OC_vs_YC_selected_enrichment <- rbind(
+  LTHSC_OCvsYC_hallmarks_selected,
+  LTHSC_OCvsYC_reactome_selected,
+  LT_HSC_OC_vs_YC_gobp_selected
+) %>%
+  arrange(desc(geneRatio))
+
+# Create dot plot
+LT_HSC_OC_vs_YC_selected_enrichment_plot <- ggplot(LT_HSC_OC_vs_YC_selected_enrichment, 
+                                                    aes(x = geneRatio, y = reorder(pathway, geneRatio))) +
+  geom_point(aes(size = -log10(padj), color = NES), show.legend = TRUE) +
+  scale_color_gradient(low = "blue", high = "red", space = "Lab", aesthetics = "colour") +
+  theme_minimal() +
+  labs(
+    title = "LT-HSC OC vs YC Top Enrichment",
+    x = "Gene Ratio",
+    y = "Pathway",
+    color = "NES",
+    size = "-log10(padj)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Save plot
+ggsave(
+  "2025-02-18_LT-HSC_OC-vs-YC_Top_Enrichment.pdf",
+  LT_HSC_OC_vs_YC_selected_enrichment_plot,
+  width = 12, height = 12, units = "in"
+)
+
+# Combine all enriched pathways for export
+LT_HSC_OC_vs_YC_combined_all_enriched_pathways <- rbind(
+  LT_HSC_OC_vs_YC_mh,
+  LT_HSC_OC_vs_YC_reactome, 
+  LT_HSC_OC_vs_YC_gobp
+) 
+# Export to Excel
+xlsx::write.xlsx(
+  LT_HSC_OC_vs_YC_combined_all_enriched_pathways,
+  "2025-10-29_LT_HSC_OC_vs_YC_combined_all_enriched_pathways.xlsx"
+)
+
+```
+
+##e. LT-HSC OA vs YC
+## -> hallmark gene sets
+
+
+
+#11. Volcano plots of transposable elements
+# Volcano Plot Visualizierung von LT-HSC OA gegen OC
+```{r}
+library(EnhancedVolcano)
+# Beräumung von TE Identität nach ihre Classes, Familie, und die Spezies
+TE<-OAvsOCWilcox[grep("gene-id", rownames(OAvsOCWilcox)), ] # Nehme die TE-Identität von DEN-Ergebnissen von LT-HSC OA gegen OC
+
+# TE-Spezies Extraktierung von ihre eigene IDs
+species<-stringi::stri_extract(TE$genes, regex = ".*(?=;)") %>% 
+  stringi::stri_extract(regex = "(?<=gene-id).*") %>%
+  as.vector()
+
+# TE-Classes Extraktierung von ihre eigene IDs
+Classes<-stringi::stri_extract(TE$genes, regex = "(?<=transcript-id).*") %>%
+  stringi::stri_extract(regex = ".*(?=/)") %>%
+  replace_na("DNA")
+# Hier habt ich realizieren das manche DNA TE hat keine / Symbole um das machen die manche TE hat keine Klasse. Hier muss ich die NA nach DNA andern
+
+# TE-Familie Extraktierung von ihre eigene IDs
+Families<-stringi::stri_extract(TE$genes, regex = "(?<=transcript-id).*") %>%
+  stringi::stri_extract(regex = "(?<=/).*")
+
+DET_LTHSC_OAvsOC<-cbind(TE, species, Families, Classes)
+
+species<-EnhancedVolcano(DET_LTHSC_OAvsOC,
+    lab = DET_LTHSC_OAvsOC$species,
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+     xlim =c(-2, 2),
+    ylim = c(0, 80),
+    title = 'Differential expressed TE species in OA vs OC LT-HSC',
+    xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 0.05,
+    FCcutoff = 0.3,
+    cutoffLineType = 'twodash',
+    cutoffLineWidth = 0.8,
+    pointSize = 1.0,
+    labSize = 2,
+    # shape = c(1,4, 23,25),
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log2FC','p-value',
+      'p-value & Log2FC'),
+    legendPosition = 'right',
+    legendLabSize = 12,
+    legendIconSize = 5.0,
+    drawConnectors = TRUE,
+    #widthConnectors = 0.5,
+    max.overlaps = 100,
+    # ridlines.major = FALSE,
+    gridlines.minor = FALSE)
+
+
+families<-EnhancedVolcano(DET_LTHSC_OAvsOC,
+    lab = DET_LTHSC_OAvsOC$Families,
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+     xlim =c(-2, 2),
+    ylim = c(0, 80),
+    title = 'Differential expressed TE families in OA vs OC LT-HSC',
+    xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 0.05,
+    FCcutoff = 0.3,
+    cutoffLineType = 'twodash',
+    cutoffLineWidth = 0.8,
+    pointSize = 1.0,
+    labSize = 2,
+    # shape = c(1,4, 23,25),
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log2FC','p-value',
+      'p-value & Log2FC'),
+    legendPosition = 'right',
+    legendLabSize = 12,
+    legendIconSize = 5.0,
+    drawConnectors = TRUE,
+    #widthConnectors = 0.5,
+    max.overlaps = 100,
+    # ridlines.major = FALSE,
+    gridlines.minor = FALSE)
+
+classes<-EnhancedVolcano(DET_LTHSC_OAvsOC,
+    lab = DET_LTHSC_OAvsOC$Classes,
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+     xlim =c(-2, 2),
+    ylim = c(0, 80),
+    title = 'Differential expressed TE classes in OA vs OC LT-HSC',
+    xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 0.05,
+    FCcutoff = 0.3,
+    cutoffLineType = 'twodash',
+    cutoffLineWidth = 0.8,
+    pointSize = 1.0,
+    labSize = 2,
+    # shape = c(1,4, 23,25),
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log2FC','p-value',
+      'p-value & Log2FC'),
+    legendPosition = 'right',
+    legendLabSize = 12,
+    legendIconSize = 5.0,
+    drawConnectors = TRUE,
+    #widthConnectors = 0.5,
+    max.overlaps = 100,
+    # ridlines.major = FALSE,
+    gridlines.minor = FALSE)
+
+print(species)
+print(families)
+print(classes)
+
+ggsave("TE_volcano_species_OAvsOC.pdf", print(species), width = 7, height = 5)
+ggsave("TE_volcano_families_OAvsOC.pdf", print(families), width = 7, height = 5)
+ggsave("TE_volcano_classes_OAvsOC.pdf", print(classes), width = 7, height = 5)
+```
+
+
+# Volcano Plot Visualizierung von LT-HSC OA gegen YC
+```{r}
+# Beräumung von TE Identität nach ihre Classes, Familie, und die Spezies
+TE<-OAvsYCWilcox[grep("gene-id", rownames(OAvsYCWilcox)), ] # Nehme die TE-Identität von DEN-Ergebnissen von LT-HSC OA gegen YC
+
+# TE-Spezies Extraktierung von ihre eigene IDs
+species<-stringi::stri_extract(TE$genes, regex = ".*(?=;)") %>% 
+  stringi::stri_extract(regex = "(?<=gene-id).*") %>%
+  as.vector()
+
+# TE-Classes Extraktierung von ihre eigene IDs
+Classes<-stringi::stri_extract(TE$genes, regex = "(?<=transcript-id).*") %>%
+  stringi::stri_extract(regex = ".*(?=/)") %>%
+  replace_na("DNA")
+# Hier habt ich realizieren das manche DNA TE hat keine / Symbole um das machen die manche TE hat keine Klasse. Hier muss ich die NA nach DNA andern
+
+# TE-Familie Extraktierung von ihre eigene IDs
+Families<-stringi::stri_extract(TE$genes, regex = "(?<=transcript-id).*") %>%
+  stringi::stri_extract(regex = "(?<=/).*")
+
+DET_LTHSC_OAvsYC<-cbind(TE, species, Families, Classes)
+
+species<-EnhancedVolcano(DET_LTHSC_OAvsYC,
+    lab = DET_LTHSC_OAvsYC$species,
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+     xlim =c(-1, 2),
+    ylim = c(0, 80),
+    title = 'Differential expressed TE species in OA vs YC LT-HSC',
+    xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 0.05,
+    FCcutoff = 0.1,
+    cutoffLineType = 'twodash',
+    cutoffLineWidth = 0.8,
+    pointSize = 1.0,
+    labSize = 2,
+    # shape = c(1,4, 23,25),
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log2FC','p-value',
+      'p-value & Log2FC'),
+    legendPosition = 'right',
+    legendLabSize = 12,
+    legendIconSize = 5.0,
+    drawConnectors = TRUE,
+    #widthConnectors = 0.5,
+    max.overlaps = 100,
+    # ridlines.major = FALSE,
+    gridlines.minor = FALSE)
+
+
+families<-EnhancedVolcano(DET_LTHSC_OAvsYC,
+    lab = DET_LTHSC_OAvsYC$Families,
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+     xlim =c(-1, 2),
+    ylim = c(0, 80),
+    title = 'Differential expressed TE families in OA vs YC LT-HSC',
+    xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 0.05,
+    FCcutoff = 0.1,
+    cutoffLineType = 'twodash',
+    cutoffLineWidth = 0.8,
+    pointSize = 1.0,
+    labSize = 2,
+    # shape = c(1,4, 23,25),
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log2FC','p-value',
+      'p-value & Log2FC'),
+    legendPosition = 'right',
+    legendLabSize = 12,
+    legendIconSize = 5.0,
+    drawConnectors = TRUE,
+    #widthConnectors = 0.5,
+    max.overlaps = 100,
+    # ridlines.major = FALSE,
+    gridlines.minor = FALSE)
+
+classes<-EnhancedVolcano(DET_LTHSC_OAvsYC,
+    lab = DET_LTHSC_OAvsYC$Classes,
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+     xlim =c(-1, 2),
+    ylim = c(0, 80),
+    title = 'Differential expressed TE classes in OA vs YC LT-HSC',
+    xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 0.05,
+    FCcutoff = 0.1,
+    cutoffLineType = 'twodash',
+    cutoffLineWidth = 0.8,
+    pointSize = 1.0,
+    labSize = 2,
+    # shape = c(1,4, 23,25),
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log2FC','p-value',
+      'p-value & Log2FC'),
+    legendPosition = 'right',
+    legendLabSize = 12,
+    legendIconSize = 5.0,
+    drawConnectors = TRUE,
+    #widthConnectors = 0.5,
+    max.overlaps = 100,
+    # ridlines.major = FALSE,
+    gridlines.minor = FALSE)
+
+print(species)
+print(families)
+print(classes)
+```
+
+
+# Volcano Plot Visualizierung von LT-HSC OC gegen YC
+```{r}
+# Beräumung von TE Identität nach ihre Classes, Familie, und die Spezies
+TE<-OCvsYCWilcox[grep("gene-id", rownames(OCvsYCWilcox)), ] # Nehme die TE-Identität von DEN-Ergebnissen von LT-HSC OC gegen YC
+
+# TE-Spezies Extraktierung von ihre eigene IDs
+species<-stringi::stri_extract(TE$genes, regex = ".*(?=;)") %>% 
+  stringi::stri_extract(regex = "(?<=gene-id).*") %>%
+  as.vector()
+
+# TE-Classes Extraktierung von ihre eigene IDs
+Classes<-stringi::stri_extract(TE$genes, regex = "(?<=transcript-id).*") %>%
+  stringi::stri_extract(regex = ".*(?=/)") %>%
+  replace_na("DNA")
+# Hier habt ich realizieren das manche DNA TE hat keine / Symbole um das machen die manche TE hat keine Klasse. Hier muss ich die NA nach DNA andern
+
+# TE-Familie Extraktierung von ihre eigene IDs
+Families<-stringi::stri_extract(TE$genes, regex = "(?<=transcript-id).*") %>%
+  stringi::stri_extract(regex = "(?<=/).*")
+
+DET_LTHSC_OCvsYC<-cbind(TE, species, Families, Classes)
+
+species<-EnhancedVolcano(DET_LTHSC_OCvsYC,
+    lab = DET_LTHSC_OCvsYC$species,
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+     xlim =c(-1, 2),
+    ylim = c(0, 80),
+    title = 'Differential expressed TE species in OC vs YC LT-HSC',
+    xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 0.05,
+    FCcutoff = 1,
+    cutoffLineType = 'twodash',
+    cutoffLineWidth = 0.7,
+    pointSize = 1.0,
+    labSize = 2,
+    # shape = c(1,4, 23,25),
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log2FC','p-value',
+      'p-value & Log2FC'),
+    legendPosition = 'right',
+    legendLabSize = 12,
+    legendIconSize = 5.0,
+    drawConnectors = TRUE,
+    #widthConnectors = 0.5,
+    max.overlaps = 100,
+    # ridlines.major = FALSE,
+    gridlines.minor = FALSE)
+
+
+families<-EnhancedVolcano(DET_LTHSC_OCvsYC,
+    lab = DET_LTHSC_OCvsYC$Families,
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+     xlim =c(-1, 2),
+    ylim = c(0, 80),
+    title = 'Differential expressed TE families in OC vs YC LT-HSC',
+    xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 0.05,
+    FCcutoff = 1,
+    cutoffLineType = 'twodash',
+    cutoffLineWidth = 0.7,
+    pointSize = 1.0,
+    labSize = 2,
+    # shape = c(1,4, 23,25),
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log2FC','p-value',
+      'p-value & Log2FC'),
+    legendPosition = 'right',
+    legendLabSize = 12,
+    legendIconSize = 5.0,
+    drawConnectors = TRUE,
+    #widthConnectors = 0.5,
+    max.overlaps = 100,
+    # ridlines.major = FALSE,
+    gridlines.minor = FALSE)
+
+classes<-EnhancedVolcano(DET_LTHSC_OCvsYC,
+    lab = DET_LTHSC_OCvsYC$Classes,
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+     xlim =c(-1, 2),
+    ylim = c(0, 80),
+    title = 'Differential expressed TE classes in OC vs YC LT-HSC',
+    xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 0.05,
+    FCcutoff = 1,
+    cutoffLineType = 'twodash',
+    cutoffLineWidth = 0.7,
+    pointSize = 1.0,
+    labSize = 2,
+    # shape = c(1,4, 23,25),
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log2FC','p-value',
+      'p-value & Log2FC'),
+    legendPosition = 'right',
+    legendLabSize = 12,
+    legendIconSize = 5.0,
+    drawConnectors = TRUE,
+    #widthConnectors = 0.5,
+    max.overlaps = 100,
+    # ridlines.major = FALSE,
+    gridlines.minor = FALSE)
+
+print(species)
+print(families)
+print(classes)
+```
+
+
+# Volcano Plot Visualizierung von LT-HSC YA gegen YC
+```{r}
+# Beräumung von TE Identität nach ihre Classes, Familie, und die Spezies
+TE<-YAvsYCWilcox[grep("gene-id", rownames(YAvsYCWilcox)), ] # Nehme die TE-Identität von DEN-Ergebnissen von LT-HSC OA gegen YC
+
+# TE-Spezies Extraktierung von ihre eigene IDs
+species<-stringi::stri_extract(TE$genes, regex = ".*(?=;)") %>% 
+  stringi::stri_extract(regex = "(?<=gene-id).*") %>%
+  as.vector()
+
+# TE-Classes Extraktierung von ihre eigene IDs
+Classes<-stringi::stri_extract(TE$genes, regex = "(?<=transcript-id).*") %>%
+  stringi::stri_extract(regex = ".*(?=/)") %>%
+  replace_na("DNA")
+# Hier habt ich realizieren das manche DNA TE hat keine / Symbole um das machen die manche TE hat keine Klasse. Hier muss ich die NA nach DNA andern
+
+# TE-Familie Extraktierung von ihre eigene IDs
+Families<-stringi::stri_extract(TE$genes, regex = "(?<=transcript-id).*") %>%
+  stringi::stri_extract(regex = "(?<=/).*")
+
+DET_LTHSC_YAvsYC<-cbind(TE, species, Families, Classes)
+
+species<-EnhancedVolcano(DET_LTHSC_YAvsYC,
+    lab = DET_LTHSC_YAvsYC$species,
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+     xlim =c(-2, 2),
+    ylim = c(0, 80),
+    title = 'Differential expressed TE species in YA vs YC LT-HSC',
+    xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 0.05,
+    FCcutoff = 0.3,
+    cutoffLineType = 'twodash',
+    cutoffLineWidth = 0.8,
+    pointSize = 1.0,
+    labSize = 2,
+    # shape = c(1,4, 23,25),
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log2FC','p-value',
+      'p-value & Log2FC'),
+    legendPosition = 'right',
+    legendLabSize = 12,
+    legendIconSize = 5.0,
+    drawConnectors = TRUE,
+    #widthConnectors = 0.5,
+    max.overlaps = 100,
+    # ridlines.major = FALSE,
+    gridlines.minor = FALSE)
+
+
+families<-EnhancedVolcano(DET_LTHSC_YAvsYC,
+    lab = DET_LTHSC_YAvsYC$Families,
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+     xlim =c(-2, 2),
+    ylim = c(0, 80),
+    title = 'Differential expressed TE families in YA vs YC LT-HSC',
+    xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 0.05,
+    FCcutoff = 0.3,
+    cutoffLineType = 'twodash',
+    cutoffLineWidth = 0.8,
+    pointSize = 1.0,
+    labSize = 2,
+    # shape = c(1,4, 23,25),
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log2FC','p-value',
+      'p-value & Log2FC'),
+    legendPosition = 'right',
+    legendLabSize = 12,
+    legendIconSize = 5.0,
+    drawConnectors = TRUE,
+    #widthConnectors = 0.5,
+    max.overlaps = 100,
+    # ridlines.major = FALSE,
+    gridlines.minor = FALSE)
+
+classes<-EnhancedVolcano(DET_LTHSC_YAvsYC,
+    lab = DET_LTHSC_YAvsYC$Classes,
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+     xlim =c(-2, 2),
+    ylim = c(0, 80),
+    title = 'Differential expressed TE classes in YA vs YC LT-HSC',
+    xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 0.05,
+    FCcutoff = 0.3,
+    cutoffLineType = 'twodash',
+    cutoffLineWidth = 0.8,
+    pointSize = 1.0,
+    labSize = 2,
+    # shape = c(1,4, 23,25),
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log2FC','p-value',
+      'p-value & Log2FC'),
+    legendPosition = 'right',
+    legendLabSize = 12,
+    legendIconSize = 5.0,
+    drawConnectors = TRUE,
+    #widthConnectors = 0.5,
+    max.overlaps = 100,
+    # ridlines.major = FALSE,
+    gridlines.minor = FALSE)
+
+print(species)
+print(families)
+print(classes)
+ggsave("TE_volcano_species_YAvsYC.pdf", print(species), width = 7, height = 5)
+ggsave("TE_volcano_families_YAvsYC.pdf", print(families), width = 7, height = 5)
+ggsave("TE_volcano_classes_YAvsYC.pdf", print(classes), width = 7, height = 5)
+```
+
+
+# Volcano Plot Visualizierung von MPP3 YA gegen YC
+```{r}
+# Beräumung von TE Identität nach ihre Classes, Familie, und die Spezies
+TE<-MPP3_YAvsYCWilcox[grep("gene-id", rownames(MPP3_YAvsYCWilcox)), ] # Nehme die TE-Identität von DEN-Ergebnissen von MPP3 YA gegen YC
+
+# TE-Spezies Extraktierung von ihre eigene IDs
+species<-stringi::stri_extract(TE$genes, regex = ".*(?=;)") %>% 
+  stringi::stri_extract(regex = "(?<=gene-id).*") %>%
+  as.vector()
+
+# TE-Classes Extraktierung von ihre eigene IDs
+Classes<-stringi::stri_extract(TE$genes, regex = "(?<=transcript-id).*") %>%
+  stringi::stri_extract(regex = ".*(?=/)") %>%
+  replace_na("DNA")
+# Hier habt ich realizieren das manche DNA TE hat keine / Symbole um das machen die manche TE hat keine Klasse. Hier muss ich die NA nach DNA andern
+
+# TE-Familie Extraktierung von ihre eigene IDs
+Families<-stringi::stri_extract(TE$genes, regex = "(?<=transcript-id).*") %>%
+  stringi::stri_extract(regex = "(?<=/).*")
+
+DET_MPP3_YAvsYC<-cbind(TE, species, Families, Classes)
+
+species<-EnhancedVolcano(DET_MPP3_YAvsYC,
+    lab = DET_MPP3_YAvsYC$species,
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+     xlim =c(-1, 2),
+    ylim = c(0, 80),
+    title = 'Differential expressed TE species in YA vs YC MPP3',
+    xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 0.05,
+    FCcutoff = 0.1,
+    cutoffLineType = 'twodash',
+    cutoffLineWidth = 0.8,
+    pointSize = 1.0,
+    labSize = 2,
+    # shape = c(1,4, 23,25),
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log2FC','p-value',
+      'p-value & Log2FC'),
+    legendPosition = 'right',
+    legendLabSize = 12,
+    legendIconSize = 5.0,
+    drawConnectors = TRUE,
+    #widthConnectors = 0.5,
+    max.overlaps = 100,
+    # ridlines.major = FALSE,
+    gridlines.minor = FALSE)
+
+
+families<-EnhancedVolcano(DET_MPP3_YAvsYC,
+    lab = DET_MPP3_YAvsYC$Families,
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+     xlim =c(-1, 2),
+    ylim = c(0, 80),
+    title = 'Differential expressed TE families in YA vs YC MPP3-HSC',
+    xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 0.05,
+    FCcutoff = 0.1,
+    cutoffLineType = 'twodash',
+    cutoffLineWidth = 0.8,
+    pointSize = 1.0,
+    labSize = 2,
+    # shape = c(1,4, 23,25),
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log2FC','p-value',
+      'p-value & Log2FC'),
+    legendPosition = 'right',
+    legendLabSize = 12,
+    legendIconSize = 5.0,
+    drawConnectors = TRUE,
+    #widthConnectors = 0.5,
+    max.overlaps = 100,
+    # ridlines.major = FALSE,
+    gridlines.minor = FALSE)
+
+classes<-EnhancedVolcano(DET_MPP3_YAvsYC,
+    lab = DET_MPP3_YAvsYC$Classes,
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+     xlim =c(-1, 2),
+    ylim = c(0, 80),
+    title = 'Differential expressed TE classes in YA vs YC MPP3',
+    xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 0.05,
+    FCcutoff = 0.1,
+    cutoffLineType = 'twodash',
+    cutoffLineWidth = 0.8,
+    pointSize = 1.0,
+    labSize = 2,
+    # shape = c(1,4, 23,25),
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log2FC','p-value',
+      'p-value & Log2FC'),
+    legendPosition = 'right',
+    legendLabSize = 12,
+    legendIconSize = 5.0,
+    drawConnectors = TRUE,
+    #widthConnectors = 0.5,
+    max.overlaps = 100,
+    # ridlines.major = FALSE,
+    gridlines.minor = FALSE)
+
+print(species)
+print(families)
+print(classes)
+```
+
+
+
+# Volcano Plot Visualizierung von MPP3 OA gegen OC
+```{r}
+# Beräumung von TE Identität nach ihre Klasse, Familie, und die Spezies
+TE<-MPP3_OAvsOCWilcox[grep("gene-id", rownames(MPP3_OAvsOCWilcox)), ] # Nehme die TE-Identität von DE Analysisergebnisse von MPP3 gruppe YA gegen YC 
+
+# TE-Spezies Extraktion von jede TE gene IDs
+species<-stringi::stri_extract(TE$genes, regex = ".*(?=;)") %>% 
+  stringi::stri_extract(regex = "(?<=gene-id).*") %>%
+  as.vector()
+
+# TE-Classes Extraktion von jede TE gene IDs
+Classes<-stringi::stri_extract(TE$genes, regex = "(?<=transcript-id).*") %>%
+  stringi::stri_extract(regex = ".*(?=/)") %>%
+  replace_na("DNA")
+# Hier habt ich realizieren das manche DNA TE hat keine / Symbole um das machen die manche TE hat keine Klasse. Hier muss ich die "NA" nach DNA andern
+
+# TE-Familie Extraktierung von ihre eigene IDs
+Families<-stringi::stri_extract(TE$genes, regex = "(?<=transcript-id).*") %>%
+  stringi::stri_extract(regex = "(?<=/).*")
+
+DET_MPP3_OAvsOC<-cbind(TE, species, Families, Classes)
+
+species<-EnhancedVolcano(DET_MPP3_OAvsOC,
+    lab = DET_MPP3_OAvsOC$species,
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+     xlim =c(-1, 2),
+    ylim = c(0, 80),
+    title = 'Differential expressed TE species in OA vs OC MPP3',
+    xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 0.05,
+    FCcutoff = 0.1,
+    cutoffLineType = 'twodash',
+    cutoffLineWidth = 0.8,
+    pointSize = 1.0,
+    labSize = 2,
+    # shape = c(1,4, 23,25),
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log2FC','p-value',
+      'p-value & Log2FC'),
+    legendPosition = 'right',
+    legendLabSize = 12,
+    legendIconSize = 5.0,
+    drawConnectors = TRUE,
+    #widthConnectors = 0.5,
+    max.overlaps = 100,
+    # ridlines.major = FALSE,
+    gridlines.minor = FALSE)
+
+
+families<-EnhancedVolcano(DET_MPP3_OAvsOC,
+    lab = DET_MPP3_YAvsYC$Families,
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+     xlim =c(-1, 2),
+    ylim = c(0, 80),
+    title = 'Differential expressed TE families in OA vs OC MPP3-HSC',
+    xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 0.05,
+    FCcutoff = 0.1,
+    cutoffLineType = 'twodash',
+    cutoffLineWidth = 0.8,
+    pointSize = 1.0,
+    labSize = 2,
+    # shape = c(1,4, 23,25),
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log2FC','p-value',
+      'p-value & Log2FC'),
+    legendPosition = 'right',
+    legendLabSize = 12,
+    legendIconSize = 5.0,
+    drawConnectors = TRUE,
+    #widthConnectors = 0.5,
+    max.overlaps = 100,
+    # ridlines.major = FALSE,
+    gridlines.minor = FALSE)
+
+classes<-EnhancedVolcano(DET_MPP3_OAvsOC,
+    lab = DET_MPP3_YAvsYC$Classes,
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+     xlim =c(-1, 2),
+    ylim = c(0, 80),
+    title = 'Differential expressed TE classes in OA vs OC MPP3',
+    xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 0.05,
+    FCcutoff = 0.1,
+    cutoffLineType = 'twodash',
+    cutoffLineWidth = 0.8,
+    pointSize = 1.0,
+    labSize = 2,
+    # shape = c(1,4, 23,25),
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log2FC','p-value',
+      'p-value & Log2FC'),
+    legendPosition = 'right',
+    legendLabSize = 12,
+    legendIconSize = 5.0,
+    drawConnectors = TRUE,
+    #widthConnectors = 0.5,
+    max.overlaps = 100,
+    # ridlines.major = FALSE,
+    gridlines.minor = FALSE)
+
+print(species)
+print(families)
+print(classes)
+```
+
+# Create barplot of Differential TE
+```{r}
+# extract Differentially expressed TE based on padj 0.05
+sigTEs_LTHSC_OAvsOC <- DET_LTHSC_OAvsOC %>%
+  dplyr::filter(p_val_adj <= 0.05, abs(avg_log2FC) >= 0.3)
+sigTEs_LTHSC_OAvsOC$expression <- "NA"
+sigTEs_LTHSC_OAvsOC$comparison <- "OAvsOC"
+
+upTE_oa_vs_oc<-sigTEs_LTHSC_OAvsOC %>%
+  dplyr::filter(avg_log2FC >= 0.3)
+upTE_oa_vs_oc<-upTE_oa_vs_oc$species
+
+downTE_oa_vs_oc<- sigTEs_LTHSC_OAvsOC %>%
+  dplyr::filter(avg_log2FC <= -0.3)
+downTE_oa_vs_oc<-downTE_oa_vs_oc$species
+
+# Assign 'expression' based on membership in the TE lists
+sigTEs_LTHSC_OAvsOC$expression <- ifelse(sigTEs_LTHSC_OAvsOC$species %in% downTE_oa_vs_oc, "downregulated",
+                        ifelse(sigTEs_LTHSC_OAvsOC$species %in% upTE_oa_vs_oc, "upregulated", NA))  # or "unknown"
+
+sigTEs_LTHSC_OAvsOC <- sigTEs_LTHSC_OAvsOC %>%
+  mutate(across(c(species, Families, Classes, expression), 
+                ~ trimws(gsub('"', '', .))))
+
+
+sigTEs_LTHSC_OAvsOC <- sigTEs_LTHSC_OAvsOC[, c("species", "Families", "Classes", "expression", "p_val", "avg_log2FC", "pct.1", "pct.2", "p_val_adj", "comparison")]
+
+##### YA vs YC LT-HSC
+sigTEs_LTHSC_YAvsYC <- DET_LTHSC_YAvsYC %>%
+  dplyr::filter(p_val_adj <= 0.05, abs(avg_log2FC) >= 0.3)
+sigTEs_LTHSC_YAvsYC$expression<- "NA"
+sigTEs_LTHSC_YAvsYC$comparison<- "YAvsYC"
+
+upTE_ya_vs_yc<-sigTEs_LTHSC_YAvsYC %>%
+  dplyr::filter(avg_log2FC >= 0.3)
+upTE_ya_vs_yc<-upTE_ya_vs_yc$species
+
+downTE_ya_vs_yc <-sigTEs_LTHSC_YAvsYC %>%
+  dplyr::filter(avg_log2FC <= -0.3)
+downTE_ya_vs_yc <- downTE_ya_vs_yc$species
+
+# Assign 'expression' based on membership in the TE lists
+sigTEs_LTHSC_YAvsYC$expression <- ifelse(sigTEs_LTHSC_YAvsYC$species %in% downTE_ya_vs_yc, "downregulated", 
+                                         ifelse(sigTEs_LTHSC_YAvsYC$species %in% upTE_ya_vs_yc, "upregulated", NA))
+
+# Assign 'expression' based on membership in the TE lists
+sigTEs_LTHSC_YAvsYC$expression <- ifelse(sigTEs_LTHSC_YAvsYC$species %in% downTE_ya_vs_yc, "downregulated",
+                                  ifelse(sigTEs_LTHSC_YAvsYC$species %in% upTE_ya_vs_yc, "upregulated", NA))  # or "unknown"
+
+# Remove quotes from selected columns
+sigTEs_LTHSC_YAvsYC <- sigTEs_LTHSC_YAvsYC %>%
+  mutate(across(c(species, Families, Classes, expression), 
+                ~ trimws(gsub('"', '', .))))
+
+
+# Subset to selected columns
+sigTEs_LTHSC_YAvsYC <- sigTEs_LTHSC_YAvsYC[, c("species", "Families", "Classes", "expression", 
+                                               "p_val", "avg_log2FC", "pct.1", "pct.2", "p_val_adj", "comparison")]
+
+sigTEs<-rbind(sigTEs_LTHSC_YAvsYC, sigTEs_LTHSC_OAvsOC)
+
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+sigTEs$comparison <- factor(sigTEs$comparison, levels = c("YAvsYC", "OAvsOC"))
+
+# Summarize count of TEs per Class, expression type, and comparison
+plot_data <- sigTEs %>%
+  group_by(Classes, expression, comparison) %>%
+  summarise(count = n(), .groups = "drop")
+
+# Define custom colors for expression levels
+custom_colors <- c(
+  "upregulated" = "#d62728" ,     # red
+  "downregulated" = "#1f77b4",   # blue
+  "non_change" = "#999999"       # gray (optional if included)
+)
+
+
+# Barplot
+te_distribution<-ggplot(plot_data, aes(x = Classes, y = count, fill = expression)) +
+  geom_bar(stat = "identity", position = "stack") +
+  facet_wrap(~ comparison) +
+  scale_fill_manual(values = custom_colors) +
+  theme_minimal() +
+  labs(
+    title = "Distribution of TE Classes by Expression and Comparison",
+    x = "TE Class",
+    y = "Count",
+    fill = "Expression"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggsave("DET_distribution.pdf", print(te_distribution), width = 5, height = 5)
+```
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Step 1: Calculate counts and proportions per Class and Comparison
+plot_data <- sigTEs %>%
+  group_by(comparison, Classes, expression) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  group_by(comparison, Classes) %>%
+  mutate(proportion = count / sum(count))  # this creates stacked bar proportions
+
+# Step 2: Plot stacked barplot with proportions
+ggplot(plot_data, aes(x = comparison, y = proportion, fill = expression)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~ Classes) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  theme_minimal() +
+  labs(
+    title = "Proportion of Up/Downregulated TEs by Class and Comparison",
+    x = "Comparison",
+    y = "Proportion",
+    fill = "Expression"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+# session info
+```{r}
+sessionInfo()
+```
+

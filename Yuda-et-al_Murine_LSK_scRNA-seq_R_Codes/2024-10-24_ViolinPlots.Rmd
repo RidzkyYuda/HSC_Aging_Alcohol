@@ -1,0 +1,136 @@
+---
+title: "Violin plot markers"
+output:
+  html_notebook: default
+  pdf_document: default
+editor_options:
+  chunk_output_type: inline
+---
+Author: Ridzky Yuda, Ph.D.
+Datum: 24. October 2024
+# 1 Installation von die gebrauchte Pakete
+```{r}
+#remotes::install_github("satijalab/seurat", "seurat5", quiet = TRUE)
+#install.packages("sctransform")
+#install.packages("harmony")
+#BiocManager::install("harmony", version = "3.16")
+#BiocManager::install("glmGamPoi")
+#BiocManager::install("clustermole")
+#install.packages("pathfindR")
+#BiocManager::install("dittoSeq")
+#BiocManager::install("formatR")
+#BiocManager::install("ComplexHeatmap")
+#BiocManager::install("fgsea")
+#install.packages("msigdbr")
+```
+
+# 2 Paket Aktivierung
+```{r}
+library(RColorBrewer)
+library(Seurat)
+library(patchwork)
+library(sctransform)
+library(harmony)
+library(ggplot2)
+library(patchwork)
+library(tidyverse)
+library(tidyverse)
+library(RCurl)
+library(cowplot)
+library(dplyr)
+library(glmGamPoi)
+library(ggsci)
+library(RCurl)
+library(AnnotationHub)
+library(ensembldb)
+library(dittoSeq)
+library(formatR)
+library(ComplexHeatmap)
+library(circlize)
+library(fgsea)
+library(msigdbr)
+library(dplyr)
+library(ggplot2)
+library(SingleR)
+library(celldex)
+```
+
+```{r}
+# 2 Laden die neueste geklustert Seuratobjek mit neuester Annotation
+
+CombinedCluster <- readRDS("~/scratch4-mjung9/ryuda1/RY27_LSK_scRNA-seq_scTE/2024-10-04_scTE_DETs_and_Plot_generation/SeuratAllCluster.rds")
+```
+
+# LT-HSC clusters
+```{r}
+lthsc<-VlnPlot(CombinedCluster, features = c("Mecom", "Meis1","Prkg1", "Samd12", "Plcl1", "Pdzk1ip1", "Trpc6", "Angpt1", "Cacnb2", "Rora", "Hlf", "Slamf1", "Kit", "Ly6a", "Procr", "Cd48"), stack = TRUE)
+ggsave("2024-10-24_LT-HSC.pdf", lthsc, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+lthsc
+```
+
+# S
+```{r}
+# LT-HSC clusters
+```{r}
+lthsc<-VlnPlot(CombinedCluster, features = c("Mecom", "Meis1","Prkg1", "Samd12", "Plcl1", "Pdzk1ip1", "Trpc6", "Angpt1", "Cacnb2", "Rora", "Hlf", "Slamf1", "Kit", "Ly6a", "Procr", "Cd48"), stack = TRUE)
+ggsave("2024-10-24_LT-HSC.pdf", lthsc, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+```
+
+```{r}
+myeloid<-VlnPlot(CombinedCluster, features = c("Runx1", "Myb", "Tal1", "Spi1", "Gfi1", "Gata2", " Cebpa", 
+                                               "Cebpb", "Cebpd", "Cebpe", "Pparg", "Irf8"), stack = TRUE)
+myeloid
+ggsave("2024-10-24_myeloid.pdf", myeloid, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+```
+
+```{r}
+meg<-VlnPlot(CombinedCluster, features = c("Gp1bb", "F2rl2", "Pf4", "Itga2b", "Mpl", "Treml1", "Mmrn1", "Nrgn", "Pbx1", "F2r", "Gp5", "Ctla2a", "Slc14a1", "Rbpms2", "Angpt1", "Gp9", "Rab27b", "Trpc6", "Tbxas1", "Tmem40", "Rgs18", "Serpina3g"), stack = TRUE)
+meg
+ggsave("2024-10-24_meg.pdf", meg, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+```
+
+
+```{r}
+CyclingProg<-VlnPlot(CombinedCluster, features = c("Kif11", "Aurkb", "Pbk", "H2ac7", "Nusap1", "Kif15",
+                                                   "H3c10", "Cdca8", "Spc24", "Prc1", "Fbxo5", "Neil3", "Esco2"), stack = TRUE)
+CyclingProg
+ggsave("2024-10-24_CyclingProg.pdf", CyclingProg, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+```
+
+```{r}
+PKRprog<-VlnPlot(CombinedCluster, features = c("Ccnb2", "Knstrn", "Cenpa", "Cdc20", "Psrc1", "Ptms", "Cdkn3", "Cks2", "Hmmr", "Cd34", "Nde1", "Cox6b2", "Eif2ak2", "Pimreg", "Cd9", "Cir1", "Bex6", "Cip2a", "Cd27", "Ifi27l2a", "Hmgn5", ), stack = TRUE)
+PKRprog
+ggsave("2024-10-24_PKRprog.pdf", PKRprog, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+```
+
+B cell markers
+```{r}
+Bcellmarker<-VlnPlot(CombinedCluster, features = c("Pou2af1", "Slamf7", "Mzb1", "Cd79a", "Ikzf3", "Irf4","Cd19", "Nusap1", "Cd20", "Tnfrsf17", "Cd38"), stack = TRUE)
+
+Bcellmarker
+ggsave("2024-10-24_PKRprog.pdf", PKRprog, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+```
+
+Erythroid
+```{r}
+ery<-VlnPlot(CombinedCluster, features = c("Gata1", "Klf1", "Gata2", "Hpgds", "Smox", "Lbh", "Nr4a1", "Gpr141", "Rhag", "Ahspp", "Vwf", "Trpc6", "Gp6", "Itgb3", "Fcer1g", "Selp"), stack = TRUE)
+
+ery
+ggsave("2024-10-24_PKRprog.pdf", PKRprog, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+```
+
+MPP3 markers
+```{r}
+MPP3<-VlnPlot(CombinedCluster, features = c("Mpeg1", "Ly86", "Gm34680", "Clec12a", "Siglech", "Irf8", "Bex6", "Slamf1", "Cd48", "Flt3", "Cd34", "Itga2b", "Cebpe", "Tirap", "Kit", "Irf4", "Cd300lf"), stack = TRUE)
+
+MPP3
+#ggsave("2024-10-24_PKRprog.pdf", PKRprog, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+```
+
+MPP3 and MEP markers together
+```{r}
+MPP3andMEP<-VlnPlot(CombinedCluster, features = c("Mpeg1", "Ly86", "Gm34680", "Clec12a", "Siglech", "Irf8", "Bex6", "Slamf1", "Cd48", "Flt3", "Cd34", "Itga2b", "Cebpe", "Tirap", "Kit", "Irf4", "Cd300lf", "Pf4", "P2rx1", "Gp5", "Gp9", "F2r", "C9", "Itga2b"), stack = TRUE)
+
+MPP3andMEP
+ggsave("2024-10-24_MPP3andMEPmarkers.pdf", MPP3andMEP, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+```

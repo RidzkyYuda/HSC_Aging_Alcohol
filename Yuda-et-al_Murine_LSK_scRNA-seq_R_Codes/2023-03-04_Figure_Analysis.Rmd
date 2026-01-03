@@ -1,0 +1,2312 @@
+---
+title: "Figure Panel 2 HSC Alcohol-Aging paper"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+Description:
+Here is the documentation of the analysis conducted to generate figure panel 2 of manuscript
+Start of the analysis February 8th, 2025
+
+# 1 Install Required Packages
+```{r}
+#remotes::install_github("satijalab/seurat", "seurat5", quiet = TRUE)
+#install.packages("sctransform")
+#install.packages("harmony")
+#BiocManager::install("harmony", version = "3.16")
+#BiocManager::install("glmGamPoi")
+#BiocManager::install("clustermole")
+#install.packages("pathfindR")
+#BiocManager::install("dittoSeq")
+#BiocManager::install("formatR")
+#BiocManager::install("ComplexHeatmap")
+#BiocManager::install("fgsea")
+#install.packages("msigdbr")
+#devtools::install_github("jhrcook/readgmt")
+#BiocManager::install("AUCell")
+#BiocManager::install("decoupleR")
+#BiocManager::install("UCell")
+#BiocManager::install("install")
+#install_github("GuangchuangYu/bitr")
+```
+
+# 2 Activate Package Libraries
+```{r}
+library(UCell)
+library(decoupleR)
+library(readgmt)
+library(stringr)
+library(RColorBrewer)
+library(Seurat)
+library(patchwork)
+library(sctransform)
+library(harmony)
+library(ggplot2)
+library(patchwork)
+library(tidyverse)
+library(cowplot)
+library(dplyr)
+library(glmGamPoi)
+library(ggsci)
+library(RCurl)
+library(AnnotationHub)
+library(ensembldb)
+library(dittoSeq)
+library(formatR)
+library(ComplexHeatmap)
+library(circlize)
+library(fgsea)
+library(msigdbr)
+library(dplyr)
+library(SingleR)
+library(celldex)
+library(ggpubr)
+```
+
+
+# 3 Load Seurat Object by reading from RDS file generated following Cluster Annotation
+```{r}
+CombinedCluster <- readRDS("~/scratch4-mjung9/ryuda1/RY27_LSK_scRNA-seq_scTE/2024-10-02_Cluster_Annotations/combined3Cluster.Seurat.rds")
+```
+
+
+```{r}
+labels <-c("LT-HSC", 
+           "MPP4/LMPP", 
+           "ST-HSC", 
+           "CLP", 
+           "MPP4/LMPP", 
+           "ST-HSC", 
+           "CLP", 
+           "Unknown", 
+           "ST-HSC", 
+           "CLP", 
+           "MDP", 
+           "MPP3", 
+           "MPP2",
+           "MPP3",
+           "B cell prog",
+           "Baso-Mast-Prog",
+           "ST-HSC",
+           "MDP",
+           "B cell prog",
+           "pDC/DC-prog",
+           "T cell prog",
+           "ST-HSC",
+           "MPP3",
+           "Baso-Mast-Prog",
+           "T cell prog",
+           "MEP",
+           "B cell prog",
+           "B cell prog",
+           "B cell prog",
+           "GMP",
+           "pDC/DC-prog",
+           "CDP")
+
+# create a new column in metadata
+CombinedCluster$CellType <- CombinedCluster$seurat_clusters
+
+# replace cluster number by cell type
+levels(CombinedCluster$CellType) <-labels
+```
+
+```{r}
+CombinedCluster@meta.data$group <- factor(x = CombinedCluster@meta.data$group, levels = c("Young control", "Young alcohol", "Old control", "Old alcohol")) # relevel group order
+
+CombinedCluster@meta.data$CellType <- factor(x = CombinedCluster@meta.data$CellType, levels = c("LT-HSC", "ST-HSC", "Unknown","MPP2", "MPP3", "MPP4/LMPP", "MEP", "GMP", "MDP", "CLP", "CDP", "Baso-Mast-Prog", "pDC/DC-prog", "B cell prog", "T cell prog")) # relevel cluster order
+
+```
+
+#4 Visualize UMAP from the Seurat object
+```{r}
+
+colors <- c("#e3d132","#99bd4b","#5fc26f","#1F78B4","#A6CEE3", "#E31A1C","#E3751C","#600078", "#33A02C", "#FDBF6F", "#526317", "#ae5e93", "#784620", "#edbbe3", "#eb5252")
+
+All<-print(DimPlot(object = CombinedCluster, 
+        reduction = "umap", 
+        label = F,
+        pt.size = 0.1,
+        repel = T,
+        label.size = 4,
+        cols = colors)) + ggtitle("All Group UMAP") +
+  theme(plot.title = element_text(hjust=0.5))
+All
+ggsave("2025-02-08_All_samples_no_label_UMAP.pdf", All, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+```
+
+
+```{r}
+# create log-normalized data in RNA assay
+#CombinedCluster<-NormalizeData(CombinedCluster, assay = "RNA")
+#DefaultAssay(CombinedCluster) <- "RNA"
+# join the multilayers
+#CombinedCluster<-JoinLayers(CombinedCluster)
+```
+
+#Visualize the expression of p53 target genes established from https://www.thelancet.com/pdfs/journals/ebiom/PIIS2352-3964(17)30215-3.pdf
+
+```{r}
+#Step 1: create a new group label for averaging
+seurat_obj<-longtermHSC
+
+DefaultAssay(seurat_obj) <- "RNA"
+
+seurat_obj$celltype_treatment <- paste(
+  seurat_obj$CellType,
+  seurat_obj$group,
+  sep = "|"
+)
+
+#Step 2: Compute average expression
+p53targetgenes<-c("Chek1","Pidd1", "Pold1", "Pcna", "Aifm1", "Stag1", "Clic4", "Slc19a2", "Mlh1", "Ptp4a3", "Psrc1", "Ckap2", "Birc5", "Plk1", "Apaf1", "Pmaip1", "Iscu", "Tap1", "Casp8", "Isyna1", "Rps27l", "S100a9", "Bad", "Spp1", "Dusp6", "Gadd45a", "Ndrg1", "Unc5a", "Fbxw7", "Pten", "Ccnk", "Cst3", "Gpx1", "Cryab", "Fdxr", "Tert", "Bid", "Irf2bp2", "Lasp1", "Tigar", "Prdm1", "Btg2", "Nlrc4", "Cpt1c", "Sema3f", "Col4a1", "Ptk2", "Fas", "Rnf144b", "Igfbp7", "Gdf15", "Epha2", "Plk2", "Cdkn1a", "Eda2r", "Phlda3", "Bax", "Zmat3", "Pvt1", "Sulf2", "Ccng1", "Bbc3", "Perp", "Casp1", "Tnfrsf10b", "Ctsd", "Ier5", "Pml", "Rchy1", "Sat1", "Dusp11", "Mdm2", "Ak1", "Aldh4a1", "Adora2b", "Scn3b", "Ninj1", "Rgs14", "Cd82", "Shisa5", "Padi4", "Sesn1", "Dusp2", "Dusp5", "Irf5", "Notch1", "Ddit4", "Traf4", "Ier3", "Park2", "Cx3cl1", "Dusp1", "Pkd1", "Rhoc", "Icam1", "Irf7", "Eif2ak2", "Rrm2b", "Bnip3l", "Trim3", "Rbm38", "Gls2", "Pcbp4", "Pdrg1", "Rap2b", "Ncf2", "Sfn", "Cdip1", "Dram1", "Ei24", "Aifm2", "Slc2a9", "Trp53")
+
+#Step 2: Compute average expression
+#p53targetgenes<-c("Cdkn1a", "Atm", "Chek2", "Gdf15", "Eda2r", "Trp53inp1", "Mgmt", "Ces2e", "Ephx1", "Sesn2", "Dcxr", "H2ax", "Aurkb", "Btk", "Ikzf1", "Pik3cd", "Sh2d1a", "Icoslg", "Ctla4", "Mdm2", "Bbc3", "Plk2")
+avg_exp <- AverageExpression(
+  seurat_obj,
+  features = p53targetgenes,
+  group.by = "celltype_treatment",
+  slot = "data"  # or "scale.data" depending on what you want to show
+)
+
+avg_matrix <- avg_exp[[DefaultAssay(seurat_obj)]]
+
+#Step3: Create annotation data from metadata
+library(dplyr)
+
+annotation_df <- seurat_obj@meta.data %>%
+  dplyr::select(CellType, group) %>%
+  dplyr::distinct() %>%
+  dplyr::mutate(celltype_treatment = paste(CellType, group, sep = "|"))
+
+# ✅ Assign celltype_treatment as rownames using base R
+rownames(annotation_df) <- annotation_df$celltype_treatment
+
+# ✅ Drop the 'celltype_treatment' column now that it's rownames
+annotation_df <- annotation_df[, c("CellType", "group")]
+
+
+# Define custom annotation colors
+library(scales)
+
+celltypes <- unique(annotation_df$CellType)  # use correct column name
+annotation_colors <- list(
+  CellType = hue_pal()(length(celltypes)) %>% setNames(celltypes),
+  group = c(
+    "Young control" = "#032dff",
+    "Young alcohol" = "#ff0f03",
+    "Old control" = "#747575",
+    "Old alcohol" = "#f78b07"
+  )
+)
+########
+# Define desired treatment order
+desired_treatment_order <- c("Young control", "Young alcohol", "Old control", "Old alcohol")
+
+# Ensure group is a factor for ordering
+annotation_df$group <- factor(annotation_df$group, levels = desired_treatment_order)
+
+# Sort annotation_df by CellType and treatment
+annotation_df <- annotation_df %>% arrange(CellType, group)
+
+# Reorder avg_matrix columns to match sorted annotation
+avg_matrix <- avg_matrix[, rownames(annotation_df)]
+
+########
+#Draw heatmap with pheatmap
+library(pheatmap)
+
+heatmap<-pheatmap(avg_matrix,
+         scale = "row",
+         cluster_rows = TRUE,
+         cluster_cols = FALSE,
+         annotation_col = annotation_df,
+         annotation_colors = annotation_colors,
+         color = colorRampPalette(c("blue", "white", "red"))(100),
+         fontsize_row = 4,
+         fontsize_col = 10)
+ggsave("p53TargetGenes.pdf", plot = heatmap, width = 14, height = 16, useDingbats = FALSE)
+```
+
+#Visualize TE silencer genes in mouse from the list shown like in paper https://bmcbiol.biomedcentral.com/articles/10.1186/s12915-024-01939-5/figures/4
+
+```{r}
+#Step 1: create a new group label for averaging
+HSPC<-subset(CombinedCluster, CellType %in% c("LT-HSC", "ST-HSC", "MPP2", "MPP3", "MPP4/LMPP","MEP"))
+longtermHSC<-subset(CombinedCluster, CellType %in% "LT-HSC")
+
+seurat_obj<-longtermHSC
+
+DefaultAssay(seurat_obj) <- "RNA"
+
+seurat_obj$celltype_treatment <- paste(
+  seurat_obj$CellType,
+  seurat_obj$group,
+  sep = "|"
+)
+
+#Step 2: Compute average expression
+Zfp<- c("Zfp13", "Zfp74", "Zfp84", "Zfp90", "Zfp93", "Zfp141", "Zfp202",
+                  "Zfp282", "Zfp398", "Zfp445", "Zfp459", "Zfp809", "Zfp932", "Zfp984")
+
+DNMTs<- c("Dnmt1", "Dnmt3a", "Dnmt3b", "Uhrf1", "Uhrf2", "Ezh2", "Rb1", 
+         "Ehmt1", "Ehmt2", "Usp7"
+)
+
+NuRD<- c("Hdac2", "Rbbp4", "Rbbp7", "Mta1", "Mta2", "Mta3", "Mbd2", "Mbd3", "Chd4"
+  
+)
+
+PIWIhush<- c("Tasor2", "Pphln1", "Piwil4", "Piwil2","Ddx4", "Mov10")
+
+OtherTESilencers<-c("Setdb1", "Trim28", "Cbx3", "Hnrnpc", "Mettl3", "Mettl14", "Wtap", "Zc3h13", "Adnp"
+  
+)
+
+TEsilencers<-c(Zfp, DNMTs, NuRD, PIWIhush, OtherTESilencers)
+avg_exp <- AverageExpression(
+  seurat_obj,
+  features = TEsilencers,
+  group.by = "celltype_treatment",
+  slot = "data"  # or "scale.data" depending on what you want to show
+)
+
+avg_matrix <- avg_exp[[DefaultAssay(seurat_obj)]]
+
+#Step3: Create annotation data from metadata
+library(dplyr)
+
+annotation_df <- seurat_obj@meta.data %>%
+  dplyr::select(CellType, group) %>%
+  dplyr::distinct() %>%
+  dplyr::mutate(celltype_treatment = paste(CellType, group, sep = "|"))
+
+# ✅ Assign celltype_treatment as rownames using base R
+rownames(annotation_df) <- annotation_df$celltype_treatment
+
+# ✅ Drop the 'celltype_treatment' column now that it's rownames
+annotation_df <- annotation_df[, c("CellType", "group")]
+
+
+# Define custom annotation colors
+library(scales)
+
+celltypes <- unique(annotation_df$CellType)  # use correct column name
+annotation_colors <- list(
+  CellType = hue_pal()(length(celltypes)) %>% setNames(celltypes),
+  group = c(
+    "Young control" = "#032dff",
+    "Young alcohol" = "#ff0f03",
+    "Old control" = "#747575",
+    "Old alcohol" = "#f78b07"
+  )
+)
+########
+# Define desired treatment order
+desired_treatment_order <- c("Young control", "Young alcohol", "Old control", "Old alcohol")
+
+# Ensure group is a factor for ordering
+annotation_df$group <- factor(annotation_df$group, levels = desired_treatment_order)
+
+# Sort annotation_df by CellType and treatment
+annotation_df <- annotation_df %>% arrange(CellType, group)
+
+# Reorder avg_matrix columns to match sorted annotation
+avg_matrix <- avg_matrix[, rownames(annotation_df)]
+
+########
+#Draw heatmap with pheatmap
+library(pheatmap)
+
+heatmap<-pheatmap(avg_matrix,
+         scale = "row",
+         cluster_rows = FALSE,
+         cluster_cols = FALSE,
+         annotation_col = annotation_df,
+         annotation_colors = annotation_colors,
+         color = colorRampPalette(c("blue", "white", "red"))(100),
+         fontsize_row = 10,
+         fontsize_col = 10)
+#ggsave("p53TargetGenes.pdf", plot = heatmap, width = 14, height = 16, useDingbats = FALSE)
+```
+
+# Visualize the expression of AGING HSC signature genes from Svendsen
+```{r}
+#Step 1: create a new group label for averaging
+seurat_obj<-CombinedCluster
+
+DefaultAssay(seurat_obj) <- "RNA"
+
+seurat_obj$celltype_treatment <- paste(
+  seurat_obj$CellType,
+  seurat_obj$group,
+  sep = "|"
+)
+
+#Step 2: Compute average expression
+# Aging module scores
+# list of aging HSC marker genes from Svendsen et al Blood 2021 https://doi.org/10.1182/blood.2020009729
+aging_markers_table<-readxl::read_xlsx('AgingSignature2.xlsx') %>% as.data.frame() #%>% dplyr::filter(Log2FC > 0)
+aging_markers_hsc<-aging_markers_table$Gene
+aging_markers_hsc<-aging_markers_hsc[!is.na(aging_markers_hsc)]
+
+avg_exp <- AverageExpression(
+  seurat_obj,
+  features = aging_markers_hsc,
+  group.by = "celltype_treatment",
+  slot = "data"  # or "scale.data" depending on what you want to show
+)
+
+avg_matrix <- avg_exp[[DefaultAssay(seurat_obj)]]
+
+#Step3: Create annotation data from metadata
+library(dplyr)
+
+annotation_df <- seurat_obj@meta.data %>%
+  dplyr::select(CellType, group) %>%
+  dplyr::distinct() %>%
+  dplyr::mutate(celltype_treatment = paste(CellType, group, sep = "|"))
+
+# ✅ Assign celltype_treatment as rownames using base R
+rownames(annotation_df) <- annotation_df$celltype_treatment
+
+# ✅ Drop the 'celltype_treatment' column now that it's rownames
+annotation_df <- annotation_df[, c("CellType", "group")]
+
+
+# Define custom annotation colors
+library(scales)
+
+celltypes <- unique(annotation_df$CellType)  # use correct column name
+annotation_colors <- list(
+  CellType = hue_pal()(length(celltypes)) %>% setNames(celltypes),
+  group = c(
+    "Young control" = "#032dff",
+    "Young alcohol" = "#ff0f03",
+    "Old control" = "#747575",
+    "Old alcohol" = "#f78b07"
+  )
+)
+########
+# Define desired treatment order
+desired_treatment_order <- c("Young control", "Young alcohol", "Old control", "Old alcohol")
+
+# Ensure group is a factor for ordering
+annotation_df$group <- factor(annotation_df$group, levels = desired_treatment_order)
+
+# Sort annotation_df by CellType and treatment
+annotation_df <- annotation_df %>% arrange(CellType, group)
+
+# Reorder avg_matrix columns to match sorted annotation
+avg_matrix <- avg_matrix[, rownames(annotation_df)]
+
+########
+#Draw heatmap with pheatmap
+library(pheatmap)
+
+Agingheatmap<-pheatmap(avg_matrix,
+         scale = "row",
+         cluster_rows = TRUE,
+         cluster_cols = FALSE,
+         annotation_col = annotation_df,
+         annotation_colors = annotation_colors,
+         color = colorRampPalette(c("blue", "white", "red"))(100),
+         fontsize_row = 10,
+         fontsize_col = 10)
+ggsave("AgingHSCGenes.pdf", plot = Agingheatmap, width = 14, height = 24, useDingbats = FALSE)
+```
+
+# Visualize the expression of interferone-regulated genes
+```{r}
+#Step 1: create a new group label for averaging
+seurat_obj<-CombinedCluster
+
+DefaultAssay(seurat_obj) <- "RNA"
+
+seurat_obj$celltype_treatment <- paste(
+  seurat_obj$CellType,
+  seurat_obj$group,
+  sep = "|"
+)
+
+#Step 2: Compute average expression
+####
+# Interferome-regulated genes obtained by filtering DEG lists into interferome website (IRG gene list 1 with criteria AvgLFC >= 0.58, Padj <= 0.05)
+irg_interferome<-read.table("~/scratch4-mjung9/ryuda1/RY27_LSK_scRNA-seq_scTE/2025-02-08_FigurePanel2Analysis/IRG/IRG_list1.txt", header = TRUE, sep = "\t") %>% 
+  as.data.frame()
+irg_genes<-irg_interferome$Gene.Name
+
+irg_genes_subset<-c("Shisa9", "Plcl1", "Oas1g", "Rbm19", "Dyrk3", "Fosb", "Pcp4l1", "Ifi27", "Etv5", "Crb2", "Snord47", "Socs3")
+
+####
+
+avg_exp <- AverageExpression(
+  seurat_obj,
+  features = irg_genes_subset,
+  group.by = "celltype_treatment",
+  slot = "data"  # or "scale.data" depending on what you want to show
+)
+
+avg_matrix <- avg_exp[[DefaultAssay(seurat_obj)]]
+
+#Step3: Create annotation data from metadata
+library(dplyr)
+
+annotation_df <- seurat_obj@meta.data %>%
+  dplyr::select(CellType, group) %>%
+  dplyr::distinct() %>%
+  dplyr::mutate(celltype_treatment = paste(CellType, group, sep = "|"))
+
+# ✅ Assign celltype_treatment as rownames using base R
+rownames(annotation_df) <- annotation_df$celltype_treatment
+
+# ✅ Drop the 'celltype_treatment' column now that it's rownames
+annotation_df <- annotation_df[, c("CellType", "group")]
+
+
+# Define custom annotation colors
+library(scales)
+
+celltypes <- unique(annotation_df$CellType)  # use correct column name
+annotation_colors <- list(
+  CellType = hue_pal()(length(celltypes)) %>% setNames(celltypes),
+  group = c(
+    "Young control" = "#032dff",
+    "Young alcohol" = "#ff0f03",
+    "Old control" = "#747575",
+    "Old alcohol" = "#f78b07"
+  )
+)
+########
+# Define desired treatment order
+desired_treatment_order <- c("Young control", "Young alcohol", "Old control", "Old alcohol")
+
+# Ensure group is a factor for ordering
+annotation_df$group <- factor(annotation_df$group, levels = desired_treatment_order)
+
+# Sort annotation_df by CellType and treatment
+annotation_df <- annotation_df %>% arrange(CellType, group)
+
+# Reorder avg_matrix columns to match sorted annotation
+avg_matrix <- avg_matrix[, rownames(annotation_df)]
+
+########
+#Draw heatmap with pheatmap
+library(pheatmap)
+
+interferome<-pheatmap(avg_matrix,
+         scale = "row",
+         cluster_rows = TRUE,
+         cluster_cols = FALSE,
+         annotation_col = annotation_df,
+         annotation_colors = annotation_colors,
+         color = colorRampPalette(c("blue", "white", "red"))(100),
+         fontsize_row = 10,
+         fontsize_col = 10)
+ggsave("InterferomeGenes.pdf", plot = interferome, width = 14, height = 24, useDingbats = FALSE)
+
+```
+
+
+#5 Add Module Scores
+#5a Aging module scores
+```{r}
+# Aging module scores
+# list of aging HSC marker genes from Svendsen et al Blood 2021 https://doi.org/10.1182/blood.2020009729
+aging_markers_table<-readxl::read_xlsx('AgingSignature2.xlsx') %>% as.data.frame() #%>% dplyr::filter(Log2FC > 0)
+aging_markers_hsc<-aging_markers_table$Gene
+aging_markers_hsc<-aging_markers_hsc[!is.na(aging_markers_hsc)]
+#saveRDS(aging_markers_hsc, file = "aging_markers_hsc.rds")
+#readRDS("aging_markers_hsc.rds")
+CombinedCluster<- AddModuleScore(CombinedCluster, features=list(aging_markers_hsc), name='Aging_HSC_Marker-Score-Svendsen')
+
+# Aging module scores from my lists
+CombinedCluster<- AddModuleScore(CombinedCluster, features=list("Selp", "Clec1a", "Clca3a1", "Clu", "Slamf1",  "Aldh1a1", "Tmem47", "Egr1", "Osmr", "Ntf3"), name='AgingHSCgenes')
+
+```
+
+#5b Stem cell module scores
+```{r}
+# Stem cell module scores
+Stemcellgenes<-c("Procr", "Mecom", "Trpc6","Slamf1","Meis1", "Esam", "Pdzk1ip1", "Hoxb5", "Fgd5", "Mpl", "Ctnaal1", "Tie1", "F11r", "Cish", "Tinagl1", "Scarf1")
+CombinedCluster<- AddModuleScore(CombinedCluster, features=list(Stemcellgenes), name='Stem_cell_score')
+```
+
+#5c Interferon-stimulated genes module scores
+```{r}
+# Interferon-stimulated genes from Bouman et al https://www.life-science-alliance.org/content/7/3/e202302309#F1
+interferon_stimulated_genes<-read.table("~/scratch4-mjung9/ryuda1/RY27_LSK_scRNA-seq_scTE/2025-02-08_FigurePanel2Analysis/gene_list_Bouman/interferon_stimulated_genes.csv", header = TRUE, sep = ";") %>% 
+  as.data.frame()
+isg_genes<-interferon_stimulated_genes$Gene
+CombinedCluster<- AddModuleScore(CombinedCluster, features=list(isg_genes), name='ISG_score')
+```
+#5d Interferome database of interferone-regulated genes module scores
+```{R}
+# Interferome-regulated genes obtained by filtering DEG lists into interferome website (IRG gene list 1 with criteria AvgLFC >= 0.58, Padj <= 0.05)
+irg_interferome<-read.table("~/scratch4-mjung9/ryuda1/RY27_LSK_scRNA-seq_scTE/2025-02-08_FigurePanel2Analysis/IRG/IRG_list1.txt", header = TRUE, sep = "\t") %>% 
+  as.data.frame()
+irg_genes<-irg_interferome$Gene.Name
+
+irg_genes_high_inOA<-c("Shisa9", "Plcl1", "Oas1g", "Rbm19", "Dyrk3", "Fosb", "Pcp4l1", "Ifi27", "Etv5", "Crb2", "Snord47", "Socs3")
+
+irg_genes_high_inOA_and_YA <-c("Klf2","Isg15", "Irf7", "Wfdc17", "Cdk11b", "Ifi44", "Clk1", "Zfp36", "Dusp1", "Fosl2", "Klf6", "Klf9", "Junb", "Coq10b", "Gvin1", "Fos", "Ccnl1", "Egr1", "Rasgef1b")
+
+irg_genes_combined<-c(irg_genes_high_inOA_and_YA, irg_genes_high_inOA_and_YA)
+
+
+CombinedCluster<- AddModuleScore(CombinedCluster, features=list(irg_genes_combined), name='IRG_list1')
+
+
+VlnPlot(CombinedCluster, features ="IRG_list11", split.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange')) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9))
+
+```
+
+#5e Myeloid transcription factors
+```{r}
+# Myeloid transcription factors from Bouman et al
+BioProcess<-read.table("~/scratch4-mjung9/ryuda1/RY27_LSK_scRNA-seq_scTE/2025-02-08_FigurePanel2Analysis/gene_list_Bouman/biological_process_marker_genes.csv", header = TRUE, sep = ";") %>% 
+  as.data.frame()
+myeloTF<-BioProcess$myeloid_TFs
+CombinedCluster<- AddModuleScore(CombinedCluster, features=list(myeloTF), name='Myelo_TF_score')
+
+# Neutrophil differentiation score from Bouman 
+neudifgenes<-BioProcess$neutrophil_differentiation
+neudifgenes<-neudifgenes[1:24]
+CombinedCluster<- AddModuleScore(CombinedCluster, features=list(neudifgenes), name='Neutrophil_Differentiation_score')
+
+
+# Monocytes differentiation score from Bouman
+monodifgenes<-BioProcess$monocyte_differentiation
+monodifgenes<-monodifgenes[1:26]
+CombinedCluster<- AddModuleScore(CombinedCluster, features=list(monodifgenes), name='Monocyte_Differentiation_score')
+```
+
+#P53 target genes module score
+```{r}
+
+CombinedCluster<- AddModuleScore(CombinedCluster, features=list(p53targetgenes), name='p53Targetgenes')
+
+p53Haem<-VlnPlot(CombinedCluster, features ="p53Targetgenes1", split.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange')) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9))
+
+ggsave("P53Haem.score.pdf", plot = p53Haem, width = 16, height = 5, useDingbats = FALSE)
+```
+
+#TE silencers gene module score
+```{r}
+CombinedCluster<- AddModuleScore(CombinedCluster, features=list(TEsilencers), name='TEsilencers1')
+
+teSilencers<-VlnPlot(CombinedCluster, features ="TEsilencers11", split.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange')) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9))
+
+ggsave("TEsilencerScores.pdf", plot = teSilencers, width = 16, height = 5, useDingbats = FALSE)
+```
+
+#nucleic acid sensors
+```{r}
+NucSensors<-c("Ifih1", "Ifit1","Ifitm1","Ddx58", "Dhx58", "Ddx60", "Rigi", "Adar", "Trim28","Tlr2", "Tlr6", "Tlr7", "Tlr9", "Nlrp5", "Nlrp10", "Nlrp12", "Nlrx1", "Eif2a", "Eif2ak1", "Eif2ak2", "Eif2ak3", "Eif2ak4", "Cgas", "Sting1","Tmem173", "Aim2", "Mavs", "Ticam1", "Traf1", "Traf3", "Traf5", "Traf6", "Irak1", "Irak3", "Irak4", "Tbk1", "Irf1", "Irf2", "Irf3", "Irf7", "Irf9", "Nfkb1", "Nfkbid", "Nfkbie")
+CombinedCluster<- AddModuleScore(CombinedCluster, features=list(NucSensors), name='NucSensors')
+
+VlnPlot(CombinedCluster, features ="NucSensors1", split.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange')) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9))
+```
+
+#6 Generate seurat object only for LT-HSC
+```{r}
+LTHSC<-subset(CombinedCluster, CellType %in% c("LT-HSC")) # subset the LT-HSC cluster only
+saveRDS(LTHSC, "LTHSC_original.seurat_object.rds")
+
+```
+
+#6a visualize UMAP of HSC aging score plots from complete gene list in Svendsen et al
+```{r}
+p1<-FeaturePlot(CombinedCluster,
+            features = "Aging_HSC_Marker-Score-Svendsen1", reduction = "umap",
+            max.cutoff = 0.2, min.cutoff = -0.2,
+            pt.size = 0.1, 
+            split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-0.2, 0.2))
+
+p2 <- lapply(p1, function (x) x + fix.sc)
+agingscoreallumap<-CombinePlots(p2)
+
+ggsave("2025-02-07_AgingScoreUMAP-LT-HSC.pdf", agingscoreallumap, device=cairo_pdf,width = 12, height = 10, units = c("in"))
+
+
+# Plot violin plot of aging scores
+Agingviolinplot<-VlnPlot(CombinedCluster, features ="Aging_HSC_Marker-Score-Svendsen1", split.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange')) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9))
+
+ggsave("2025-02-07_AgingScoreViolin.pdf", Agingviolinplot, device=cairo_pdf,width = 20, height = 6, units = c("in"))
+
+### Plot violin plot of aging scores only for LT-HSC
+AgingHSCviolinplot<-VlnPlot(LTHSC, features ="Aging_HSC_Marker-Score-Svendsen1", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old control", "Young control"), c("Old alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 0.7))
+ggsave("2025-02-07_AgingHSCScoreViolin.pdf", AgingHSCviolinplot, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+```
+
+# violin plot nucleic acid sensors
+```{r}
+violinplot<-VlnPlot(LTHSC, features ="NucSensors1", group.by = "group", pt.size = 0) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + ggplot2::scale_fill_manual(values = c("#e3d132","#5fc26f", "#A6CEE3", "#600078", "#E3751C", "#99bd4b", "#784620", "#edbbe3","#E31A1C","#1F78B4","#eb5252", "#FDBF6F","#526317", "#33A02C","#ae5e93")) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old control", "Young control"), c("Old alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 0.8))
+ggsave("2025-06-13_NucleicAcidSensors.pdf", violinplot, device=cairo_pdf,width = 20, height = 6, units = c("in"))
+```
+
+#5b visualize stem cell score plots
+```{r}
+p1stem<-FeaturePlot(CombinedCluster,
+            features = "Stem_cell_score1", reduction = "umap",
+            max.cutoff = 0.8, min.cutoff = -0.3,
+            pt.size = 0.1, 
+            split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc.stem<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-0.3, 0.8))
+
+p2stem <- lapply(p1stem, function (x) x + fix.sc.stem)
+stemcellallumap<-CombinePlots(p2stem)
+
+ggsave("2025-02-07_StemCellScoreUMAP-LT-HSC.pdf", stemcellallumap, device=cairo_pdf,width = 12, height = 10, units = c("in"))
+
+violinplot<-VlnPlot(CombinedCluster, features ="Stem_cell_score1", group.by = "CellType", pt.size = 0) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + ggplot2::scale_fill_manual(values = c("#e3d132","#5fc26f", "#A6CEE3", "#600078", "#E3751C", "#99bd4b", "#784620", "#edbbe3","#E31A1C","#1F78B4","#eb5252", "#FDBF6F","#526317", "#33A02C","#ae5e93")) #+ stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old control", "Young control"), c("Old alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 2))
+ggsave("2025-02-07_StemCellScoreViolin.pdf", violinplot, device=cairo_pdf,width = 20, height = 6, units = c("in"))
+
+
+HSCviolinplot<-VlnPlot(LTHSC, features ="Stem_cell_score1", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange')) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old control", "Young control"), c("Old alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 1.8))
+ggsave("2025-03-04_LT-HSC.Stem.Cell.Score.Violin.pdf", HSCviolinplot, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+```
+
+```{r}
+stemscore<-CombinedCluster@meta.data$`Stem_cell_score1`
+
+stemcoreextracted<-data.frame(group, celltype,stemscore)
+xlsx::write.xlsx(stemcoreextracted, "2025-02-7_Stemness_scores.xlsx") # save into an Excel file
+
+```
+
+
+# 5c Visualize interferon-stimulated gene score plots
+```{r}
+p1ISG<-FeaturePlot(CombinedCluster,
+            features = "ISG_score1", reduction = "umap",
+            max.cutoff = 0.2, min.cutoff = -0.1,
+            pt.size = 0.1, 
+            split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc.ISG<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-0.1, 0.2))
+
+p2ISG <- lapply(p1ISG, function (x) x + fix.sc.ISG)
+ISGallumap<-CombinePlots(p2ISG)
+
+ggsave("2025-02-07_ISGScoreUMAP-LT-HSC.pdf", ISGallumap, device=cairo_pdf,width = 12, height = 10, units = c("in"))
+
+ISGviolinplot<-VlnPlot(CombinedCluster, features ="ISG_score1", group.by = "CellType", pt.size = 0) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + ggplot2::scale_fill_manual(values = c("#e3d132","#5fc26f", "#A6CEE3", "#600078", "#E3751C", "#99bd4b", "#784620", "#edbbe3","#E31A1C","#1F78B4","#eb5252", "#FDBF6F","#526317", "#33A02C","#ae5e93"))
+ggsave("2025-02-07_ISG_ScoreViolin.pdf", ISGviolinplot, device=cairo_pdf,width = 20, height = 6, units = c("in"))
+
+
+ISG.HSC.violinplot<-VlnPlot(LTHSC, features ="ISG_score1", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange')) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old control", "Young control"), c("Old alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 0.6))
+ggsave("2025-03-04_LT-HSC.ISG.Score.Violin.pdf", ISG.HSC.violinplot, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+isgscore<-CombinedCluster@meta.data$`ISG_score1`
+group<-CombinedCluster@meta.data$group
+isgscoreextracted<-data.frame(group, celltype,isgscore)
+xlsx::write.xlsx(isgscoreextracted, "2025-02-7_ISG_scores.xlsx") # save into an Excel file
+
+# Calculate ISG scores of LTHSC
+isgscore<-LTHSC@meta.data$`ISG_score1`
+group<-CombinedCluster@meta.data$group
+isgscoreextracted<-data.frame(group, isgscore)
+
+
+# Calculate the median expression for each group
+median_expression.ISG.score <- isgscoreextracted %>%
+  group_by(group) %>%
+  summarise(median_expression = median(isgscore, na.rm = TRUE))
+median_expression.ISG.score
+
+
+```
+
+# 5c Visualize Interferon-regualted genes
+```{r}
+IRG_violin<-VlnPlot(CombinedCluster, features ="IRG_list11", group.by = "CellType", pt.size = 0) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + ggplot2::scale_fill_manual(values = c("#e3d132","#5fc26f", "#A6CEE3", "#600078", "#E3751C", "#99bd4b", "#784620", "#edbbe3","#E31A1C","#1F78B4","#eb5252", "#FDBF6F","#526317", "#33A02C","#ae5e93"))
+ggsave("2025-02-07_IRG_ScoreViolin.pdf", IRG_violin, device=cairo_pdf,width = 20, height = 6, units = c("in"))
+
+IRG.HSC.violinplot<-VlnPlot(LTHSC, features ="IRG_list11", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange')) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old control", "Young control"), c("Old alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 0.8))
+ggsave("2025-03-04_LT-HSC.IRG.Score.Violin.pdf", IRG.HSC.violinplot, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+ISG.HSC.violinplot<-VlnPlot(LTHSC, features ="ISG_score1", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange')) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old control", "Young control"), c("Old alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 0.5))
+ggsave("2025-03-04_LT-HSC.ISG.Score.Violin.pdf", ISG.HSC.violinplot, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+# Calculate IRG scores of LTHSC
+irgscore<-LTHSC@meta.data$'IRG_list11'
+group<-LTHSC@meta.data$group
+irg.score.extracted<-data.frame(group, irgscore)
+
+
+# Calculate the median expression for each group
+median_expression.IRG.score <- irg.score.extracted %>%
+  group_by(group) %>%
+  summarise(median_expression = median(irgscore, na.rm = TRUE))
+median_expression.IRG.score
+
+```
+
+######Some violin plots of genes from LT-HSC cluster only
+```{r}
+### Plot violin plot of Procr only for LT-HSC
+# Extract the expression data for a specific gene from Seurat
+expression <- FetchData(LTHSC, vars = c("Procr", "Neo1", "Zfp36","Fos","Selp", "Ifi44", "Ifi27", "Ifitm1", "Fos", "Junb", "Cd74"), layer = "data")
+#expression<-expression$Procr %>% head()
+# Extract the metadata column for grouping (e.g., clusters or conditions)
+metadata_column <- LTHSC@meta.data$group  # e.g., "seurat_clusters"
+
+
+# Create a data frame with gene expression and metadata
+selected.genes<-data.frame(metadata_column, expression)
+
+# Calculate the median expression for each group
+median_expression <- selected.genes%>%
+  group_by(metadata_column) %>%
+  summarise(median_expression = median(Fos, na.rm = TRUE))
+median_expression
+
+ProcrHSCviolinplot<-VlnPlot(LTHSC, features ="Procr", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 5))
+ProcrHSCviolinplot
+ggsave("2025-03-04_LT-HSC.Procr.Violin.pdf", ProcrHSCviolinplot, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+Ifi27HSCviolinplot<-VlnPlot(CombinedCluster.LTHSC, features ="Eif2ak2", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 4))
+Ifi27HSCviolinplot
+ggsave("2025-03-04_LT-HSC.Ifi27.Violin.pdf", Ifi27HSCviolinplot, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+Ifi44HSCviolinplot<-VlnPlot(LTHSC, features ="Ifi44", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 4))
+Ifi27HSCviolinplot
+ggsave("2025-03-04_LT-HSC.Ifi44.Violin.pdf", Ifi44HSCviolinplot, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+pcnaHSCviolinplot<-VlnPlot(LTHSC, features ="Pcna", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 4))
+ggsave("2025-03-04_LT-HSC.Pcna.Violin.pdf", pcnaHSCviolinplot, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+Zfp36HSCviolinplot<-VlnPlot(LTHSC, features ="Zfp36", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 6))
+ggsave("2025-03-04_LT-HSC.Zfp36.Violin.pdf", Zfp36HSCviolinplot, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+Egr1HSCviolinplot<-VlnPlot(LTHSC, features ="Egr1", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 6))
+ggsave("2025-03-04_LT-HSC.Egr1.Violin.pdf", Egr1HSCviolinplot, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+Neo1HSCviolinplot<-VlnPlot(LTHSC, features ="Neo1", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 6))
+ggsave("2025-03-04_LT-HSC.Neo1.Violin.pdf", Neo1HSCviolinplot, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+Klf6HSCviolinplot<-VlnPlot(LTHSC, features ="Klf6", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 6))
+ggsave("2025-03-04_LT-HSC.Klf6.Violin.pdf", Klf6HSCviolinplot, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+H2AXHSCviolinplot<-VlnPlot(LTHSC, features ="H2ax", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 4))
+ggsave("2025-03-04_LT-HSC.H2ax.Violin.pdf", H2AXHSCviolinplo, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+Cdkn1aHSCviolinplot<-VlnPlot(LTHSC, features ="Cdkn1a", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 4))
+ggsave("2025-03-04_LT-HSC.Cdkn1a.Violin.pdf", Cdkn1aHSCviolinplot, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+DefaultAssay(LTHSC) <- "SCT"
+selpviolin<-VlnPlot(LTHSC, features ="Selp", group.by = "group", pt.size = 0.1, assay = "SCT", slot = "data") + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 2, color = "black", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.2, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Old alcohol", "Young control"), c("Old control", "Young control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 4))
+ggsave("2025-03-04_LT-HSC.Selp.Violin.pdf", selpviolin, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+Plcl1violin<-VlnPlot(LTHSC, features ="Plcl1", group.by = "group", pt.size = 0.1, assay = "SCT", slot = "data") + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 2, color = "black", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.2, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Old alcohol", "Young control"), c("Old control", "Young control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 4))
+ggsave("2025-03-04_LT-HSC.Plcl1.Violin.pdf", Plcl1violin, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+
+Oas1gviolin<-VlnPlot(LTHSC, features ="Oas1g", group.by = "group", pt.size = 0.1, assay = "SCT", slot = "data") + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 2, color = "black", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.2, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Old alcohol", "Young control"), c("Old control", "Young control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 4))
+ggsave("2025-03-04_LT-HSC.Oas1g.Violin.pdf", Oas1gviolin, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+Etv5violin<-VlnPlot(LTHSC, features ="Etv5", group.by = "group", pt.size = 0.1, assay = "SCT", slot = "data") + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 2, color = "black", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.2, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Old alcohol", "Young control"), c("Old control", "Young control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 4))
+ggsave("2025-03-04_LT-HSC.Etv5.Violin.pdf", Etv5gviolin, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+Snord47violin<-VlnPlot(LTHSC, features ="Snord47", group.by = "group", pt.size = 0.1, assay = "SCT", slot = "data") + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 2, color = "black", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.2, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Old alcohol", "Young control"), c("Old control", "Young control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 4))
+ggsave("2025-03-04_LT-HSC.Snord47.Violin.pdf", Snord47violin, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+FosBviolin<-VlnPlot(LTHSC, features ="Fosb", group.by = "group", pt.size = 0.1, assay = "SCT", slot = "data") + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 2, color = "black", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.2, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Old alcohol", "Young control"), c("Old control", "Young control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 6))
+ggsave("2025-03-04_LT-HSC.FosBviolin.Violin.pdf", FosBviolin, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+Cebpbviolin<-VlnPlot(LTHSC, features ="Cebpb", group.by = "group", pt.size = 0.1, assay = "SCT", slot = "data") + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 2, color = "black", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.2, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Old alcohol", "Young control"), c("Old control", "Young control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 6))
+ggsave("2025-03-04_LT-HSC.Cebpb.Violin.pdf", Cebpbviolin, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+Cebpdviolin<-VlnPlot(LTHSC, features ="Cebpd", group.by = "group", pt.size = 0.1, assay = "SCT", slot = "data") + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 2, color = "black", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.2, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Old alcohol", "Young control"), c("Old control", "Young control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 6))
+ggsave("2025-03-04_LT-HSC.Cebpd.Violin.pdf", Cebpdviolin, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+Ccna2violin<-VlnPlot(LTHSC, features ="Ccna2", group.by = "group", pt.size = 0.1, assay = "SCT", slot = "data") + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 2, color = "black", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.2, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Old alcohol", "Young control"), c("Old control", "Young control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 3))
+ggsave("2025-03-04_LT-HSC.Ccna2.Violin.pdf", Ccna2violin, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+Mpoviolin<-VlnPlot(LTHSC, features ="Mpo", group.by = "group", pt.size = 0.1, assay = "SCT", slot = "data") + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 2, color = "black", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.2, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Old alcohol", "Young control"), c("Old control", "Young control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 3))
+ggsave("2025-03-04_LT-HSC.Mpo.Violin.pdf", Ccna2violin, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+CebpbBviolinLSK<-VlnPlot(CombinedCluster, features ="Cebpb", group.by = "group", pt.size = 0.1, assay = "SCT", slot = "data") + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 2, color = "black", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.2, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Old alcohol", "Young control"), c("Old control", "Young control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 6))
+ggsave("2025-03-04_LT-HSC.Ifitm1.Violin.pdf", Ccna2violin, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+VlnPlot(CombinedCluster, features ="Phf6", group.by = "group", pt.size = 0.1, assay = "SCT", slot = "data") + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 2, color = "black", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.2, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Old alcohol", "Young control"), c("Old control", "Young control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 6))
+ggsave("2025-03-04_LT-HSC.Ifitm1.Violin.pdf", Ccna2violin, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+```
+
+## UMAP for certain genes in the LSK
+```{r}
+p1<-FeaturePlot(CombinedCluster,
+            features = "Cebpa", reduction = "umap",
+            max.cutoff = 1, min.cutoff = -1,
+            pt.size = 0.1, 
+            split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-1, 1))
+
+p2 <- lapply(p1, function (x) x + fix.sc)
+p3<-CombinePlots(p2)
+
+ggsave("2025-05-21_Cebpa_UMAP.pdf",p3 , device=cairo_pdf,width = 12, height = 10, units = c("in"))
+
+##############
+p1<-FeaturePlot(CombinedCluster,
+            features = "Spi1", reduction = "umap",
+            max.cutoff = 2, min.cutoff = -2,
+            pt.size = 0.1, 
+            split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-2, 2))
+
+p2 <- lapply(p1, function (x) x + fix.sc)
+p3<-CombinePlots(p2)
+
+ggsave("2025-05-21_Spi1_UMAP.pdf",p3 , device=cairo_pdf,width = 12, height = 10, units = c("in"))
+
+##############
+p1<-FeaturePlot(CombinedCluster,
+            features = "Cebpd", reduction = "umap",
+            max.cutoff = 1, min.cutoff = -1,
+            pt.size = 0.1, 
+            split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-1, 1))
+
+p2 <- lapply(p1, function (x) x + fix.sc)
+p3<-CombinePlots(p2)
+
+ggsave("2025-05-21_Cebpd_UMAP.pdf",p3 , device=cairo_pdf,width = 12, height = 10, units = c("in"))
+
+##############
+p1<-FeaturePlot(CombinedCluster,
+            features = "Csf2ra", reduction = "umap",
+            max.cutoff = 1, min.cutoff = -1,
+            pt.size = 0.1, 
+            split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-1, 1))
+
+p2 <- lapply(p1, function (x) x + fix.sc)
+p3<-CombinePlots(p2)
+
+ggsave("2025-05-21_Csf2ra_UMAP.pdf",p3 , device=cairo_pdf,width = 12, height = 10, units = c("in"))
+
+##############
+p1<-FeaturePlot(CombinedCluster,
+            features = "Csf1r", reduction = "umap",
+            max.cutoff = 1, min.cutoff = -1,
+            pt.size = 0.1, 
+            split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-1, 1))
+
+p2 <- lapply(p1, function (x) x + fix.sc)
+p3<-CombinePlots(p2)
+
+ggsave("2025-05-21_Csf1r_UMAP.pdf",p3 , device=cairo_pdf,width = 12, height = 10, units = c("in"))
+
+
+##############
+p1<-FeaturePlot(CombinedCluster,
+            features = "Maf", reduction = "umap",
+            max.cutoff = 1, min.cutoff = -1,
+            pt.size = 0.1, 
+            split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-1, 1))
+
+p2 <- lapply(p1, function (x) x + fix.sc)
+p3<-CombinePlots(p2)
+
+ggsave("2025-05-21_Maf_UMAP.pdf",p3 , device=cairo_pdf,width = 12, height = 10, units = c("in"))
+
+##############
+p1<-FeaturePlot(CombinedCluster,
+            features = "S100a8", reduction = "umap",
+            max.cutoff = 1, min.cutoff = -1,
+            pt.size = 0.1, 
+            split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-1, 1))
+
+p2 <- lapply(p1, function (x) x + fix.sc)
+p3<-CombinePlots(p2)
+
+ggsave("2025-05-21_S100a8_UMAP.pdf",p3 , device=cairo_pdf,width = 12, height = 10, units = c("in"))
+
+##############
+p1<-FeaturePlot(CombinedCluster,
+            features = "Cebpe", reduction = "umap",
+            max.cutoff = 1, min.cutoff = -1,
+            pt.size = 0.1, 
+            split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-1, 1))
+
+p2 <- lapply(p1, function (x) x + fix.sc)
+p3<-CombinePlots(p2)
+
+ggsave("2025-05-21_Cebpe_UMAP.pdf",p3 , device=cairo_pdf,width = 12, height = 10, units = c("in"))
+
+##############
+p1<-FeaturePlot(CombinedCluster,
+            features = "Irf8", reduction = "umap",
+            max.cutoff = 4, min.cutoff = -4,
+            pt.size = 0.1, 
+            split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-4, 4))
+
+p2 <- lapply(p1, function (x) x + fix.sc)
+p3<-CombinePlots(p2)
+
+ggsave("2025-05-21_Irf8_UMAP.pdf",p3 , device=cairo_pdf,width = 12, height = 10, units = c("in"))
+
+
+##############
+p1<-FeaturePlot(CombinedCluster,
+            features = "Irf4", reduction = "umap",
+            max.cutoff = 4, min.cutoff = -4,
+            pt.size = 0.1, 
+            split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-4, 4))
+
+p2 <- lapply(p1, function (x) x + fix.sc)
+p3<-CombinePlots(p2)
+p3
+#ggsave("2025-05-21_Irf8_UMAP.pdf",p3 , device=cairo_pdf,width = 12, height = 10, units = c("in"))
+
+##############
+p1<-FeaturePlot(CombinedCluster,
+            features = "Eif2ak2", reduction = "umap",
+            max.cutoff = 2, min.cutoff = -2,
+            pt.size = 0.1, 
+            split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-2, 2))
+
+p2 <- lapply(p1, function (x) x + fix.sc)
+p3<-CombinePlots(p2)
+p3
+ggsave("2025-07-23_Eif2ak2_UMAP.pdf",p3 , device=cairo_pdf,width = 12, height = 10, units = c("in"))
+
+##############
+p1<-FeaturePlot(CombinedCluster,
+            features = "Rigi", reduction = "umap",
+            max.cutoff = 2, min.cutoff = -2,
+            pt.size = 0.1, 
+            split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-2, 2))
+
+p2 <- lapply(p1, function (x) x + fix.sc)
+p3<-CombinePlots(p2)
+p3
+ggsave("2025-07-23_Rigi_UMAP.pdf",p3 , device=cairo_pdf,width = 12, height = 10, units = c("in"))
+
+##############
+p1<-FeaturePlot(CombinedCluster,
+            features = "Ifih1", reduction = "umap",
+            max.cutoff = 2, min.cutoff = -2,
+            pt.size = 0.1, 
+            split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-2, 2))
+
+p2 <- lapply(p1, function (x) x + fix.sc)
+p3<-CombinePlots(p2)
+p3
+ggsave("2025-07-23_Ddx58orIfih1_UMAP.pdf",p3 , device=cairo_pdf,width = 12, height = 10, units = c("in"))
+
+##############
+p1<-FeaturePlot(CombinedCluster,
+            features = "Irf3", reduction = "umap",
+            max.cutoff = 2, min.cutoff = -2,
+            pt.size = 0.1, 
+            split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-2, 2))
+
+p2 <- lapply(p1, function (x) x + fix.sc)
+p3<-CombinePlots(p2)
+p3
+ggsave("2025-07-23_Irf3_UMAP.pdf",p3 , device=cairo_pdf,width = 12, height = 10, units = c("in"))
+
+##############
+p1<-FeaturePlot(CombinedCluster,
+            features = "Irf7", reduction = "umap",
+            max.cutoff = 2, min.cutoff = -2,
+            pt.size = 0.1, 
+            split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-2, 2))
+
+p2 <- lapply(p1, function (x) x + fix.sc)
+p3<-CombinePlots(p2)
+p3
+ggsave("2025-07-23_Irf7_UMAP.pdf",p3 , device=cairo_pdf,width = 12, height = 10, units = c("in"))
+```
+
+## Loop function to plot genes into UMAP separated by conditions
+```{r}
+library(RColorBrewer)
+library(patchwork)  # needed for wrap_plots()
+
+genes_to_plot <- c("Irf7", "Spi1", "Stat1", "Cebpa", "Cebpb", "Cebpd",
+                   "Cebpe", "S100a8", "Csf1r", "Csf2ra", "Csf2rb","Irf8", "Maf", "Mafb", "Ifi44", "Selp", "Rigi", "Ifih1", "Eif2ak2", "Zfp36")  # replace with your list
+
+genes_to_plot <- c("Cebpa", "Cebpb", "Cebpd", "Cebpe", "S100a8", "Csf1r",
+                   "Csf2ra", "Csf2rb", "Maf", "Mafb") 
+
+fix.sc <- scale_colour_gradientn(
+  colours = rev(brewer.pal(n = 11, name = "RdBu")),
+  limits = c(-1, 1)
+)
+
+for (gene in genes_to_plot) {
+  
+  p_list <- FeaturePlot(
+    CombinedCluster,
+    features = gene, reduction = "umap",
+    max.cutoff = 1, min.cutoff = -1,
+    pt.size = 0.1, 
+    split.by = "group",
+    label = FALSE, repel = TRUE,
+    combine = FALSE
+  )
+  
+  # apply custom color scale
+  p_list <- lapply(p_list, function(x) x + fix.sc)
+  
+  # combine plots
+  combined_plot <- wrap_plots(p_list)
+  
+  # save
+  ggsave(
+    filename = paste0("2025-07-23_", gene, "_UMAP.pdf"),
+    plot = combined_plot,
+    device = cairo_pdf,
+    width = 12, height = 10, units = "in"
+  )
+  
+  message("Saved plot for ", gene)
+}
+
+```
+
+
+##Example on how to calculate percent of cells with positive markers
+```{r}
+#library(dplyr)
+
+# Assuming:
+# - 'seurat_obj' is your Seurat object
+# - 'treatment' is your group column
+# - 'seurat_clusters' is the cluster ID column (or use your own, e.g., 'cluster')
+# - 'CD3D' is your marker gene
+
+marker_gene <- "Pml"
+threshold <- 0
+
+# Extract expression + metadata
+expr_data <- FetchData(CombinedCluster.LTHSC, vars = c(marker_gene, "group", "seurat_clusters"))
+expr_data$marker_positive <- expr_data[[marker_gene]] > threshold
+
+# Group by treatment and cluster
+summary_df <- expr_data %>%
+  group_by(group, seurat_clusters) %>%
+  summarise(
+    total_cells = n(),
+    marker_positive_cells = sum(marker_positive),
+    percent_marker_positive = (marker_positive_cells / total_cells) * 100,
+    .groups = 'drop'
+  )
+
+print(summary_df)
+
+
+```
+
+#### Subset only HSPC
+```{r}
+HSPC<-subset(CombinedCluster, CellType %in% c("LT-HSC", "ST-HSC", "MPP2", "MPP3", "MPP4/LMPP"))
+
+g2mviolinplot<-VlnPlot(HSPC, features ="G2M.Score", split.by = "group", pt.size = 0, split.plot = TRUE) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange')) 
+#stat_summary(fun.y =median, geom='point', size = 10, colour = "black", shape = 95)
+
+ggsave("2025-02-07_G2m_Violin.pdf", g2mviolinplot, device=cairo_pdf,width = 20, height = 6, units = c("in"))
+```
+
+##Subset only HSC and MPP SUBPOPULATIONS
+```{r}
+CombinedCluster.STHSC<-subset(CombinedCluster, CellType %in% c("ST-HSC"))
+CombinedCluster.MPP2<-subset(CombinedCluster, CellType %in% c("MPP2"))
+CombinedCluster.MPP3<-subset(CombinedCluster, CellType %in% c("MPP3"))
+CombinedCluster.MPP4<-subset(CombinedCluster, CellType %in% c("MPP4/LMPP"))
+CombinedClusterMPP<-subset(CombinedCluster, CellType %in% c("MPP2", "MPP3", "MPP4/LMPP"))
+CombinedClusterHSC<-subset(CombinedCluster, CellType %in% c("LT-HSC", "ST-HSC"))
+
+```
+
+###  Visualize some genes or modules from MPP
+```{r}
+Csf2rbMPPVio<-VlnPlot(CombinedClusterMPP, features ="Csf2rb", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 3))
+Csf2rbMPPVio
+ggsave("2025-03-04_MPP.Csf2rb.Violin.pdf", Csf2rbMPPVio, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+#####
+Spi1MPPVio<-VlnPlot(CombinedClusterMPP, features ="Spi1", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 4))
+Spi1MPPVio
+ggsave("2025-03-04_MPP.Spi1.Violin.pdf", Spi1MPPVio, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+#####
+CebpaMPPVio<-VlnPlot(CombinedClusterMPP, features ="Cebpa", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 3))
+CebpaMPPVio
+ggsave("2025-03-04_MPP.Cebpa.Violin.pdf", CebpaMPPVio, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+#####
+CebpbMPPVio<-VlnPlot(CombinedClusterMPP, features ="Cebpb", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 6))
+CebpbMPPVio
+ggsave("2025-03-04_MPP.Cebpb.Violin.pdf", CebpbMPPVio, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+#####
+CebpdMPPVio<-VlnPlot(CombinedClusterMPP, features ="Cebpd", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 4))
+CebpdMPPVio
+ggsave("2025-03-04_MPP.Cebpd.Violin.pdf", CebpdMPPVio, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+#####
+Irf8MPPVio<-VlnPlot(CombinedClusterMPP, features ="Irf8", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 6))
+Irf8MPPVio
+ggsave("2025-03-04_MPP.Irf8.Violin.pdf", Irf8MPPVio, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+#####
+Csf1rMPPVio<-VlnPlot(CombinedClusterMPP, features ="Csf1r", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 3))
+Csf1rMPPVio
+ggsave("2025-03-04_MPP.Csf1r.Violin.pdf", Csf1rMPPVio, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+#####
+MonoModuleMPPVio<-VlnPlot(CombinedClusterMPP, features ="Monocyte_Differentiation_score1", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 3))
+MonoModuleMPPVio
+ggsave("2025-03-04_MPP.MonoModule.Violin.pdf", MonoModuleMPPVio, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+#####
+NeutroModuleMPPVio<-VlnPlot(CombinedClusterMPP, features ="Neutrophil_Differentiation_score1", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 4))
+NeutroModuleMPPVio
+ggsave("2025-03-04_MPP.NeutroModule.Violin.pdf", NeutroModuleMPPVio, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+```
+
+```{r}
+print(DotPlot(HSPC, cols = "RdYlBu", assay = "RNA", features = c("Slamf1", "Egr1", "Aldh1a1", "Lgals1", "Cavin2","Selp", "Cd38", "Itgb3", "Clec1a", "Clca3a1","Ntf3", "Clu", "Osmr", "Spi1", "Fos", "Junb", "Socs3", "Pf4", "Eif2ak2", "Eif2ak3", "Samhd1", "Ifih1", "Ifit1", "Ifitm1", "Rigi", "Dhx58", "Irf3", "Irf7", "Cgas", "Sting1", "Nfkb1", "Ddx60", "Trim28", "Isg15", "Irf8", "Adar", "S100a9", "Cd74", "Mki67"), group.by = "group"))+
+  theme(axis.text.x=element_text(size=rel(0.8), angle=90))+
+  ggtitle("Selected genes in HSPC")+
+  theme(plot.title = element_text(hjust=0.5))
+```
+
+
+### Visualize some genes or modules from MPP2
+```{r}
+gene_plot <- c("Csf1r","Csf2rb","Spi1", "Cebpa", "Cebpb", "Cebpe", "Irf8", "Monocyte_Differentiation_score1", "Neutrophil_Differentiation_score1")
+for (gene in gene_plot) {
+    VlnPlot(CombinedCluster.MPP2, features =gene, group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 3))
+    ggsave(paste("ViolinPlotMyeloid/Violin",gene, "MPP2.pdf", sep = "_"), width = 6, height = 5)
+}
+```
+
+### Visualize some genes or modules from MPP3
+```{r}
+gene_plot <- c("Csf1r","Csf2rb","Spi1", "Cebpa", "Cebpb", "Cebpe", "Irf8", "Monocyte_Differentiation_score1", "Neutrophil_Differentiation_score1")
+for (gene in gene_plot) {
+    VlnPlot(CombinedCluster.MPP3, features =gene, group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 8))
+    ggsave(paste("ViolinPlotMyeloid/Violin",gene, "MPP3.pdf", sep = "_"), width = 6, height = 5)
+}
+
+```
+
+### Visualize some genes or modules from MPP2
+```{r}
+Csf2rbMPP2Vio<-VlnPlot(CombinedCluster.MPP2, features ="Csf2rb", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 3))
+Csf2rbMPP2Vio
+ggsave("2025-06-13_MPP2.Csf2rb.Violin.pdf", Csf2rbMPP2Vio, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+#####
+Spi1MPP2Vio<-VlnPlot(CombinedCluster.MPP2, features ="Spi1", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 4))
+Spi1MPP2Vio
+ggsave("2025-06-13_MPP2.Spi1.Violin.pdf", Spi1MPP2Vio, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+#####
+CebpaMPP2Vio<-VlnPlot(CombinedCluster.MPP2, features ="Cebpa", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 3))
+CebpaMPPVio
+ggsave("2025-03-04_MPP.Cebpa.Violin.pdf", CebpaMPPVio, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+#####
+CebpbMPPVio<-VlnPlot(CombinedClusterMPP, features ="Cebpb", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 6))
+CebpbMPPVio
+ggsave("2025-03-04_MPP.Cebpb.Violin.pdf", CebpbMPPVio, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+#####
+CebpdMPPVio<-VlnPlot(CombinedClusterMPP, features ="Cebpd", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 4))
+CebpdMPPVio
+ggsave("2025-03-04_MPP.Cebpd.Violin.pdf", CebpdMPPVio, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+#####
+Irf8MPPVio<-VlnPlot(CombinedClusterMPP, features ="Irf8", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 6))
+Irf8MPPVio
+ggsave("2025-03-04_MPP.Irf8.Violin.pdf", Irf8MPPVio, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+#####
+Csf1rMPPVio<-VlnPlot(CombinedClusterMPP, features ="Csf1r", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 3))
+Csf1rMPPVio
+ggsave("2025-03-04_MPP.Csf1r.Violin.pdf", Csf1rMPPVio, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+#####
+MonoModuleMPPVio<-VlnPlot(CombinedClusterMPP, features ="Monocyte_Differentiation_score1", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 3))
+MonoModuleMPPVio
+ggsave("2025-03-04_MPP.MonoModule.Violin.pdf", MonoModuleMPPVio, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+#####
+NeutroModuleMPPVio<-VlnPlot(CombinedClusterMPP, features ="Neutrophil_Differentiation_score1", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 4))
+NeutroModuleMPPVio
+ggsave("2025-03-04_MPP.NeutroModule.Violin.pdf", NeutroModuleMPPVio, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+```
+
+
+### Visualize some genes or modules from HSC (LT-HSC and ST-HSC)
+```{r}
+Csf2rbHSCVio<-VlnPlot(CombinedClusterHSC, features ="Csf2rb", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 3))
+Csf2rbHSCVio
+ggsave("2025-03-04_HSC.Csf2rb.Violin.pdf", Csf2rbHSCVio, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+######
+Csf1rHSCVio<-VlnPlot(CombinedClusterHSC, features ="Csf1r", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 3))
+Csf1rHSCVio
+ggsave("2025-03-04_HSC.Csf1r.Violin.pdf", Csf1rHSCVio, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+######
+CebpaHSCVio<-VlnPlot(CombinedClusterHSC, features ="Cebpa", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 3))
+CebpaHSCVio
+ggsave("2025-03-04_HSC.Cebpa.Violin.pdf", CebpaHSCVio, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+######
+CebpbHSCVio<-VlnPlot(CombinedClusterHSC, features ="Cebpb", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 5))
+CebpbHSCVio
+ggsave("2025-03-04_HSC.Cebpb.Violin.pdf", CebpbHSCVio, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+######
+CebpdHSCVio<-VlnPlot(CombinedClusterHSC, features ="Cebpd", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 4))
+CebpdHSCVio
+ggsave("2025-03-04_HSC.Cebpd.Violin.pdf", CebpdHSCVio, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+######
+Spi1HSCVio<-VlnPlot(CombinedClusterHSC, features ="Spi1", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 6))
+Spi1HSCVio
+ggsave("2025-03-04_HSC.Spi1.Violin.pdf", Spi1HSCVio, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+######
+Irf8HSCVio<-VlnPlot(CombinedClusterHSC, features ="Irf8", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 6))
+Irf8HSCVio
+ggsave("2025-03-04_HSC.Irf8.Violin.pdf", Irf8HSCVio, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+######
+MonoModulHSCVio<-VlnPlot(CombinedClusterHSC, features ="Monocyte_Differentiation_score1", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 3))
+MonoModulHSCVio
+ggsave("2025-03-04_HSC.MonoModule.Violin.pdf", MonoModulHSCVio, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+######
+NeuModulHSCVio<-VlnPlot(CombinedClusterHSC, features ="Neutrophil_Differentiation_score1", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control"), c("Young control", "Old control"), c("Young control", "Old alcohol")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 4))
+NeuModulHSCVio
+ggsave("2025-03-04_HSC.NeutroModule.Violin.pdf", NeuModulHSCVio, device=cairo_pdf,width = 6, height = 5, units = c("in"))
+
+
+```
+
+
+```{r}
+Sviolinplot<-VlnPlot(HSPC, features ="S.Score", split.by = "group", pt.size = 0, split.plot = TRUE) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange')) 
+#stat_summary(fun.y =median, geom='point', size = 10, colour = "black", shape = 95)
+
+ggsave("2025-02-07_S_Violin.pdf", Sviolinplot, device=cairo_pdf,width = 20, height = 6, units = c("in"))
+```
+
+```{r}
+sca1<- data.frame(FetchData(object = CombinedCluster, vars= c("Ly6a")))
+cells<-CombinedCluster@meta.data$cells
+group<-CombinedCluster@meta.data$group
+celltype<-CombinedCluster@meta.data$CellType
+sca1_counts<-data.frame(group, celltype, cells, sca1)
+xlsx::write.xlsx(sca1_counts, "2025-02-7_Sca1_counts.xlsx") # save into an Excel file
+
+```
+
+#5d Visualize myeloid TF score
+```{r}
+p1MTF<-FeaturePlot(CombinedCluster,
+            features = "Myelo_TF_score1", reduction = "umap",
+            max.cutoff = 0.2, min.cutoff = -0.2,
+            pt.size = 0.1, 
+            split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc.MTF<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-0.2, 0.2))
+
+p2MTF <- lapply(p1ISG, function (x) x + fix.sc.MTF)
+MTFallumap<-CombinePlots(p2MTF)
+
+ggsave("2025-02-07_MyeloTF_Score_UMAP-LT-HSC.pdf", MTFallumap, device=cairo_pdf,width = 12, height = 10, units = c("in"))
+
+MTFviolinplot<-VlnPlot(CombinedCluster, features ="Myelo_TF_score1", split.by = "group", pt.size = 0.1) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange')) + stat_summary(fun.y = median, geom='point', size = 2, colour = "black", shape = 95)
+
+ggsave("2025-02-07_MTF_ScoreViolin.pdf", MTFviolinplot, device=cairo_pdf,width = 20, height = 6, units = c("in"))
+
+```
+
+
+#5e Visualize neutrophil Differentiation Score
+```{r}
+p1Neu<-FeaturePlot(CombinedCluster,
+            features = "Neutrophil_Differentiation_score1", reduction = "umap",
+            max.cutoff = 0.2, min.cutoff = -0.2,
+            pt.size = 0.1, 
+            split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc.Neu<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-0.2, 0.2))
+
+p2Neu <- lapply(p1Neu, function (x) x + fix.sc.Neu)
+Neuallumap<-CombinePlots(p2Neu)
+
+ggsave("2025-02-07_Neutrophil_Differentiation_Score_UMAP.pdf", Neuallumap, device=cairo_pdf,width = 12, height = 10, units = c("in"))
+
+Neuviolinplot<-VlnPlot(CombinedCluster, features ="Neutrophil_Differentiation_score1", split.by = "group", group.by = "CellType",pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange')) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old control", "Young control"), c("Old alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") #+ scale_y_continuous(limits = c(0, 2))
+
+ggsave("2025-02-07_Neutrophil_Differentiation_ScoreViolin.pdf", Neuviolinplot, device=cairo_pdf,width = 20, height = 6, units = c("in"))
+
+```
+
+```{r}
+
+
+```
+
+
+#5f Visualize monocyte differentiation score
+```{r}
+p1Mono<-FeaturePlot(CombinedCluster,
+            features = "Monocyte_Differentiation_score1", reduction = "umap",
+            max.cutoff = 0.2, min.cutoff = -0.2,
+            pt.size = 0.1, 
+            split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc.Mono<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-0.2, 0.2))
+
+p2Mono <- lapply(p1Mono, function (x) x + fix.sc.Mono)
+Monoallumap<-CombinePlots(p2Mono)
+
+ggsave("2025-02-07_Monocyte_Differentiation_Score_UMAP.pdf", Monoallumap, device=cairo_pdf,width = 12, height = 10, units = c("in"))
+
+Monoviolinplot<-VlnPlot(CombinedCluster, features ="Monocyte_Differentiation_score1", split.by = "group", group.by = "CellType",pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange')) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old control", "Young control"), c("Old alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") #+ scale_y_continuous(limits = c(0, 2))
+
+ggsave("2025-05-22_Monocyte_Differentiation_ScoreViolin.pdf", Monoviolinplot, device=cairo_pdf,width = 20, height = 6, units = c("in"))
+
+```
+
+# 5g Visualize cell cycle score
+```{r}
+p1CellCycle<-FeaturePlot(CombinedCluster,
+            features = "Cell_Cycle_score1", reduction = "umap",
+            max.cutoff = 1, min.cutoff = -0.5,
+            pt.size = 0.1, 
+            split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc.CC<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-0.5, 1))
+
+p1CellCycle <- lapply(p1CellCycle, function (x) x + fix.sc.CC)
+Cellcycleallumap<-CombinePlots(p1CellCycle)
+
+ggsave("2025-02-07_Cell_Cycle_Score_UMAP.pdf", Cellcycleallumap, device=cairo_pdf,width = 12, height = 10, units = c("in"))
+
+CellCyleviolinplot<-VlnPlot(CombinedCluster, features ="Cell_Cycle_score1", split.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange')) + stat_summary(fun.y = median, geom='point', size = 0.1, colour = "black", shape = 95)
+
+ggsave("2025-02-07_Cell_Cycle_ScoreViolin.pdf", CellCyleviolinplot, device=cairo_pdf,width = 20, height = 6, units = c("in"))
+
+```
+
+#6 Cell type proportion
+
+```{r}
+# population frequency
+pt <- table(Idents(CombinedCluster),CombinedCluster$group)
+pt <- as.data.frame(pt)
+
+orders <- c("Young control", "Young alcohol", "Old control", "Old alcohol")
+pt$Var2 <- factor(pt$Var2,levels = c("Young control", "Young alcohol", "Old control", "Old alcohol"))
+
+type<-ggplot(pt, aes(x = Var2, y = Freq, fill = Var1))+
+  theme_bw(base_size = 15) +
+  geom_col(position = "fill", width = 0.6) +
+  xlab("Group") +
+  ylab("Cell type proportion") + 
+  scale_fill_manual(values = colors) + 
+  theme(legend.title = element_blank()) +
+  theme(axis.text.x=element_text(size=rel(1), angle=0))
+type
+ggsave("2024-10-04_cell_type_proportion.pdf", type, device=cairo_pdf,width = 5, height = 5, units = c("in"))
+
+```
+
+
+#7 Cluster markers
+```{r}
+# compute differentially-expressed genes in each clusters against all clusters and report only positively upregulated genes to be considered as cluster markers
+
+markersPreCompute <- PrepSCTFindMarkers(CombinedCluster)
+all_markers <- FindAllMarkers(markersPreCompute,
+                              min.pct = 0.25,
+                              only.pos = T,
+                              min.diff.pct = 0.25,
+                              logfc.threshold = 0.25)
+```
+
+```{r}
+all_markers
+```
+
+#7a save results in excell
+```{r}
+#write.xlsx(all_markers, "DEG_all_cluster_markers.xlsx", col.names =TRUE, row.names =TRUE)
+WriteXLS::WriteXLS(all_markers, "DEG_all_cluster_markers.xlsx", col.names =TRUE, row.names =TRUE)
+```
+
+#7b generate heatmap of top 10 marker genes
+```{r}
+# subset only top 30 markers
+all_markers %>%
+  group_by(cluster) %>%
+  dplyr::filter(avg_log2FC > 1.5) %>%
+  slice_head(n = 10) %>%
+  ungroup() -> top10
+
+markers_heatmap<-dittoSeq::dittoHeatmap(CombinedCluster, top10$gene, 
+                       annot.by = "CellType",
+                       scaled.to.max = TRUE,
+                       show_colnames = FALSE,
+                       highlight.features = c("Wfdc17", "Flt3", "Adgrg3", "Dusp5", "Mn1", "Pdzk1ip1", "Procr", "Mecom", "Esam", "Meis1", "H2ac8", "Bub1", "Kif11", "Cdk1", "Hmmr", "Mpeg1", "Siglech", "Ly86", "Irf8", "Lgals1"))
+
+ggsave("2025-01-15_Top10-cluster-markers.pdf", markers_heatmap, device=cairo_pdf,width = 8, height = 10, units = c("in"))
+
+```
+# 8 visualize some gene markers in dotplot
+```{r}
+DotPlotGeneMarkers<-print(DotPlot(CombinedCluster, cols = "RdBu", assay = "SCT", features = c("Procr", "Slamf1","Mecom", "Esam", "Meis1","Pdzk1ip1","Cd48","Ly6a", "Dntt", "Cd34", "Satb1","Flt3", "Mn1", "Ikzf1","Wfdc17","Ly86", "Mpeg1", "Siglech","Mpo", "Calr", "Pf4", "F2r", "Gata1","Gata2", "Klf1", "Car1","Kif4","Plk1", "Cdc25a", "Mad2l1", "Tpx2", "Nuf2", "Rad23a","Cd63", "Cpa3", "Kit"), group.by = "CellType"))+
+  theme(axis.text.x=element_text(size=rel(1), angle=90))+
+  ggtitle("Markers gene expression in different clusters")+
+  theme(plot.title = element_text(hjust=0.5)) + coord_flip() +
+  xlab("Markers genes") +
+  ylab("Clusters") 
+ggsave("2024-10-04_Dotplot_Gene_Markers.pdf", DotPlotGeneMarkers, device=cairo_pdf,width = 7, height = 10, units = c("in"))
+```
+# 8 visualize some gene markers in dotplot
+```{r}
+DotPlotGeneMarkers<-print(DotPlot(HSPC, cols = "RdBu", assay = "SCT", features = c("Aging_HSC_Marker-Score-Svendsen1", "ISG_score1", "Neutrophil_Differentiation_score1", "Monocyte_Differentiation_score1"), group.by = "CellType", split.by = "group"))+
+  theme(axis.text.x=element_text(size=rel(1), angle=90))+
+  ggtitle("Markers gene expression in different clusters")+
+  theme(plot.title = element_text(hjust=0.5)) + coord_flip() +
+  xlab("Markers genes") +
+  ylab("Clusters") 
+ggsave("2024-10-04_Dotplot_Gene_Markers.pdf", DotPlotGeneMarkers, device=cairo_pdf,width = 7, height = 10, units = c("in"))
+```
+
+# activation markers in HSPC subpopulations
+```{r}
+
+HSPC<-subset(CombinedCluster, CellType %in% c("LT-HSC", "ST-HSC", "MPP2", "MPP3", "MPP4/LMPP"))
+
+HSPC_activation<-VlnPlot(HSPC, features =c("Cdk6", "H2ax", "Cdkn1a", "Procr","Ifitm1","Ifitm2", "Ifitm3"), split.by = "group", stack = TRUE, pt.size = 1, split.plot = TRUE, layer = "data", assay = "SCT", log = FALSE, flip = TRUE) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange')) 
+#stat_summary(fun.y =median, geom='point', size = 10, colour = "black", shape = 95)
+
+ggsave("2025-02-07_HSPC_Activation_Markers.pdf", HSPC_activation, device=cairo_pdf,width = 20, height = 6, units = c("in"))
+```
+
+# Activation markers in LT-HSC
+```{r}
+LTHSC<-subset(CombinedCluster, CellType %in% c("LT-HSC"))
+
+LTHSCActivation<-VlnPlot(LTHSC, features =c("Cdk6", "Pcna","Ifitm3"), split.by = "group", stack = TRUE, pt.size = 1, split.plot = TRUE, layer = "data", y.max = 4,assay = "SCT", log = FALSE, flip = TRUE) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange')) # + stat_summary(fun.y =median, geom='point', size = 10, colour = "black", shape = 95, position = position_dodge(0.5))
+
+ggsave("2025-02-07_LTHSC_Activation_Markers_Violin.pdf", LTHSCActivation, device=cairo_pdf,width = 8, height = 10, units = c("in"))
+
+
+CDK6_violin<-VlnPlot(LTHSC, features =c("Cdk6"), split.by = "group", pt.size = 0, split.plot = TRUE, layer = "data", assay = "SCT", log = FALSE, flip = TRUE) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange')) # + stat_summary(fun.y =median, geom='point', size = 10, colour = "black", shape = 95, position = position_dodge(0.5))
+
+ggsave("2025-02-07_LTHSC_CDK6_Violin.pdf", CDK6_violin, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+######
+Mcm6_violin<-VlnPlot(LTHSC, features =c("Dut"), split.by = "group", pt.size = 0, split.plot = TRUE, layer = "data", assay = "SCT", log = FALSE, flip = TRUE) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange')) #+ stat_summary(fun.y =median, geom='point', size = 10, colour = "black", shape = 95, position = position_dodge(0.9))
+
+ggsave("2025-02-07_LTHSC_Mcm6_Violin.pdf", Mcm6_violin, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+```
+
+```{r}
+activationmarkers<- data.frame(FetchData(object = CombinedCluster, vars= c("Cdk6", "Cdk2", "Ccnd1", "Top2a","Pcna", "Procr", "Ifitm1", "Ifitm2", "Ifitm3"), layer = "data"))
+
+cells<-CombinedCluster@meta.data$cells
+group<-CombinedCluster@meta.data$group
+celltype<-CombinedCluster@meta.data$CellType
+activation_markers_norm_counts<-data.frame(group, celltype, cells, activationmarkers)
+xlsx::write.xlsx(activation_markers_norm_counts, "2025-02-7_Cdk2_norm_counts.xlsx") # save into an Excel file
+```
+
+
+Based on the interferon-regulated gene signatures, it is evidenced that the LT-HSC cluster contain a subset that express the IRG and a subset that do not respond to IRG. Therefore, I would like to do reclustering to separate the two LT-HSC subclusters
+#9 Reclustering of LT-HSC cluster 
+```{r}
+# from the subseted LTHSC Seurat Object, we are going to recluster the cells hoping to find 2 transcriptionally disctinct subsets
+
+CombinedCluster.LTHSC<-subset(CombinedCluster, CellType %in% c("LT-HSC"))
+
+CombinedCluster.LTHSC <- FindNeighbors(CombinedCluster.LTHSC, dims = 1:5, reduction = "integrated.dr", features = "IRG_list11")
+
+CombinedCluster.LTHSC <- FindClusters(CombinedCluster.LTHSC, resolution = 0.4, graph.name = "SCT_snn")
+
+CombinedCluster.LTHSC<-RunUMAP(CombinedCluster.LTHSC, dims = 1:5, reduction = "integrated.dr")
+
+UMAPLTHSC<-DimPlot(CombinedCluster.LTHSC, reduction = "umap", group.by = "seurat_clusters",label = T, shuffle = TRUE) +
+  theme(aspect.ratio = 1, legend.text = element_text(size = rel(0.8))) #+
+  #scale_color_igv()
+
+UMAPLTHSC
+
+```
+## compute DEG of HSC cluster 0, 1, 2, 3, 4 and plot into a heatmap
+```{r}
+# compute differentially-expressed genes in each clusters against all clusters and report only positively upregulated genes to be considered as cluster markers
+Idents(CombinedCluster.LTHSC) <- "seurat_clusters"
+markersPreCompute_LTHSC_orig.subclust <- PrepSCTFindMarkers(CombinedCluster.LTHSC, assay = "SCT")
+
+all_markers_LTHSC_orig.subclust <- FindAllMarkers(markersPreCompute_LTHSC_orig.subclust,
+                              min.pct = 0.1,
+                              only.pos = T,
+                              min.diff.pct = 0.1,
+                              logfc.threshold = 0.2, recorrect_umi=FALSE)
+
+all_markers_LTHSC_orig.subclust
+#save the DEG results of LTHSC subclusters
+WriteXLS::WriteXLS(all_markers_LTHSC_orig.subclust, "DEG_LT-HSC_orig.subcluster_markers.xlsx", col.names =TRUE, row.names =TRUE)
+
+######## Visualize top 10 markers
+all_markers_LTHSC_orig.subclust %>%
+  group_by(cluster) %>%
+  dplyr::filter(avg_log2FC > 1) %>%
+  dplyr::filter(p_val_adj < 0.01) %>%
+  dplyr::filter(pct.1 > 0.5) %>%
+  slice_head(n = 10) %>%
+  ungroup() -> top
+
+DefaultAssay(CombinedCluster.LTHSC) <- "SCT"
+heatmap_marker_orig.subclust.Gene_top10<-DoHeatmap(subset(CombinedCluster.LTHSC, downsample = 200), features = top$gene, size = 3, draw.lines = "TRUE", ) + theme(axis.text.y = element_text(size = 5, face = "italic", color = "black")) #+ scale_fill_viridis(option = "inferno", direction = 1)
+
+heatmap_marker_orig.subclust.Gene_top10
+
+ggsave("2025-01-15_Top10-orig.lt-hsc_cluster-markers.pdf", heatmap_marker_orig.subclust.Gene_top10, device=cairo_pdf,width = 5, height = 3, units = c("in"))
+
+```
+
+```{r}
+saveRDS(CombinedCluster.LTHSC, "Seurat_LTHSC_original_subclusters.rds")
+```
+
+
+## check what subclusters of LT-HSC that express high IRG genes
+```{r}
+#### IRG genes
+LTHSC_IRG<-FeaturePlot(CombinedCluster.LTHSC,
+            features = "IRG_list11", reduction = "umap",
+            max.cutoff = 0.4, min.cutoff = -0.4,
+            pt.size = 3, 
+            #split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc.IRG2<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-0.4, 0.4))
+
+LTHSC_IRG_plot<- lapply(LTHSC_IRG, function (x) x + fix.sc.IRG2)
+IRG2allumap<-CombinePlots(LTHSC_IRG_plot)
+print(IRG2allumap)
+
+ggsave("2025-02-17_IRG-LT-HSC_subcluster.pdf", IRG2allumap, device=cairo_pdf,width = 12, height = 10, units = c("in"))
+
+
+#### ISG genes
+LTHSC_ISG<-FeaturePlot(CombinedCluster.LTHSC,
+            features = "ISG_score1", reduction = "umap",
+            max.cutoff = 0.4, min.cutoff = -0.2,
+            pt.size = 3, 
+            #split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc.ISG<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-0.2, 0.4))
+
+LTHSC_ISG_plot<- lapply(LTHSC_ISG, function (x) x + fix.sc.ISG)
+ISGallumap<-CombinePlots(LTHSC_ISG_plot)
+print(ISGallumap)
+
+ggsave("2025-02-17_ISG-LT-HSC_subcluster.pdf", ISGallumap, device=cairo_pdf,width = 12, height = 10, units = c("in"))
+
+
+#### testgenes
+LTHSC_test<-FeaturePlot(CombinedCluster.LTHSC,
+            features = "Ifi44", reduction = "umap",
+            max.cutoff = 3, min.cutoff = -2,
+            pt.size = 3, 
+            #split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc.test<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-2, 3))
+
+LTHSC_test_plot<- lapply(LTHSC_test, function (x) x + fix.sc.test)
+testallumap<-CombinePlots(LTHSC_test_plot)
+print(testallumap)
+
+ggsave("2025-02-27_Ifi44-LT-HSC_subcluster.pdf", testallumap, device=cairo_pdf,width = 12, height = 10, units = c("in"))
+
+
+IFI44_LTHSCsubset<-VlnPlot(CombinedCluster.LTHSC, features =("Ifi44"), split.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange')) #+ stat_summary(fun.y = median, geom='point', size = 2, colour = "black", shape = 95)
+
+ggsave("2025-02-26_IFI44_violin_LTHSC-subset.pdf", IFI44_LTHSCsubset, device=cairo_pdf,width = 8, height = 4, units = c("in"))
+
+```
+
+
+## Visualize IRG gene expression in dotplot of the 4 subclusters
+```{r}
+print(DotPlot(CombinedCluster.LTHSC, cols = "RdYlBu", assay = "SCT", features = c("IRG_list11", "ISG_score1"),group.by = "seurat_clusters"))+
+  theme(axis.text.x=element_text(size=rel(0.8), angle=90))+
+  ggtitle("IRG expression")+
+  theme(plot.title = element_text(hjust=0.5))
+```
+
+
+## Cluster re-assignment for LT-HSC into LT-HSC1 and LT-HSC2
+it is now evidenced that subclusters 1 and 2 do not or lowly express the interferon-regulated genes (significantly genes filtered from Interferome datasets), whereas 0, 3, 4 express IRG. Therefore,  subcluster 1,2 will be combined as LT-HSC1 (IRGlow) whereas subscluster 0 and 3 and 4 will be renamed as LT-HSC2 (IRG high)
+
+```{r}
+labels <-c("LT-HSC2", 
+           "LT-HSC1", 
+           "LT-HSC1", 
+           "LT-HSC2",
+           "LT-HSC2"
+          )
+
+# create a new column in metadata
+CombinedCluster.LTHSC$seurat_clusters2 <- CombinedCluster.LTHSC$seurat_clusters
+CombinedCluster.LTHSC$seurat_clusters3 <- CombinedCluster.LTHSC$seurat_clusters
+
+CombinedCluster.LTHSC$seurat_clusters2 <- factor(CombinedCluster.LTHSC$seurat_clusters2,
+                levels = c("0", "1", "2", "3", "4"),
+                labels = c("LT-HSC2", "LT-HSC1", "LT-HSC1", "LT-HSC2", "LT-HSC2"))
+
+CombinedCluster.LTHSC$seurat_clusters3 <- factor(CombinedCluster.LTHSC$seurat_clusters3,
+                levels = c("0", "1", "2", "3", "4"),
+                labels = c("LT-HSC2", "LT-HSC1", "LT-HSC3", "LT-HSC2", "LT-HSC2"))
+
+# save seurat object into RDS
+saveRDS(CombinedCluster.LTHSC, file = "LTHSC_subclusters_Seurat.rds")
+
+
+# replace cluster number by cell type
+levels(CombinedCluster.LTHSC$seurat_clusters) <-labels
+
+# replace cluster number by cell type
+Idents(CombinedCluster.LTHSC) <-CombinedCluster.LTHSC$seurat_clusters
+
+lthsc_subclust<-DimPlot(CombinedCluster.LTHSC, reduction = "umap", pt.size = 3,  group.by = "seurat_clusters", label = T, shuffle = TRUE) +
+  theme(aspect.ratio = 1, legend.text = element_text(size = rel(0.8))) #+
+  #scale_color_igv()
+
+ggsave("2025-02-17_LT-HSC_subcluster_UMAP.pdf", lthsc_subclust, device=cairo_pdf,width = 12, height = 10, units = c("in"))
+
+```
+
+## Umap of LT-HSC1 and LT-HSC2 separated by groups
+```{r}
+# subset CombinedCluster.LTHSC seurat project based on the groups
+
+# subset and plot UMAP YC LT-HSC
+CombinedCluster.LTHSC_YC <- subset(CombinedCluster.LTHSC, group %in% "Young control")
+
+YC_UMAP_hscsubset<-print(DimPlot(object = CombinedCluster.LTHSC_YC, 
+        reduction = "umap", 
+        label = F,
+        pt.size = 2,
+        repel = T,
+        label.size = 4)) +
+  ggtitle("Young Control")+
+  theme(plot.title = element_text(hjust=0.5))
+
+ggsave("2025-07-23_YC_UMAP_LT-HSC1and2.pdf", YC_UMAP_hscsubset, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+
+
+# Subset and plot UMAP YA LT-HSC
+CombinedCluster.LTHSC_YA <- subset(CombinedCluster.LTHSC, group %in% "Young alcohol")
+
+YA_UMAP_hscsubset<- print(DimPlot(object = CombinedCluster.LTHSC_YA,
+                                  reduction = "umap",
+                                  label = F,
+                                  pt.size = 2,
+                                  repel = T,
+                                  label.size = 4)) +
+  ggtitle("Young Alcohol")+
+  theme(plot.title = element_text(hjust=0.5))
+ggsave("2025-07-23_YA_UMAP_LT-HSC1and2.pdf", YA_UMAP_hscsubset, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+
+
+# Subset and plot UMAP OC LT-HSC
+CombinedCluster.LTHSC_OC <- subset(CombinedCluster.LTHSC, group %in% "Old control")
+
+OC_UMAP_hscsubset<- print(DimPlot(object = CombinedCluster.LTHSC_OC,
+                                  reduction = "umap",
+                                  label = F,
+                                  pt.size = 2,
+                                  repel = T,
+                                  label.size = 4)) +
+  ggtitle("Old Control")+
+  theme(plot.title = element_text(hjust=0.5))
+ggsave("2025-07-23_OC_UMAP_LT-HSC1and2.pdf", OC_UMAP_hscsubset, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+
+
+# Subset and plot UMAP OA LT-HSC
+CombinedCluster.LTHSC_OA <- subset(CombinedCluster.LTHSC, group %in% "Old alcohol")
+
+OA_UMAP_hscsubset<- print(DimPlot(object = CombinedCluster.LTHSC_OA,
+                                  reduction = "umap",
+                                  label = F,
+                                  pt.size = 2,
+                                  repel = T,
+                                  label.size = 4)) +
+  ggtitle("Old Alcohol")+
+  theme(plot.title = element_text(hjust=0.5))
+ggsave("2025-07-23_OA_UMAP_LT-HSC1and2.pdf", OA_UMAP_hscsubset, device=cairo_pdf,width = 10, height = 8, units = c("in"))
+```
+
+## Cell type proportion of LT-HSC subclusters
+```{r}
+# population frequency
+pt_subclust <- table(Idents(CombinedCluster.LTHSC),CombinedCluster.LTHSC$group)
+pt_subclust <- as.data.frame(pt_subclust)
+
+orders <- c("Young control", "Young alcohol", "Old control", "Old alcohol")
+pt_subclust$Var2 <- factor(pt_subclust$Var2,levels = c("Young control", "Young alcohol", "Old control", "Old alcohol"))
+
+type_subclust<-ggplot(pt_subclust, aes(x = Var2, y = Freq, fill = Var1))+
+  theme_bw(base_size = 15) +
+  geom_col(position = "fill", width = 0.6) +
+  xlab("Group") +
+  ylab("Cell type proportion") + 
+  #scale_fill_manual(values = colors) + 
+  theme(legend.title = element_blank()) +
+  theme(axis.text.x=element_text(size=rel(1), angle=0))
+type_subclust
+ggsave("2025-07-23_cell_type_proportion_hsc_subclusters.pdf", type_subclust, device=cairo_pdf,width = 8, height = 7, units = c("in"))
+
+```
+
+## Loop function to plot genes into lthsc UMAP separated by conditions
+```{r}
+library(RColorBrewer)
+library(patchwork)  # needed for wrap_plots()
+
+#genes_to_plot <- c("Irf7", "Spi1", "Stat1", "Cebpa", "Cebpb", "Cebpd",
+ #                  "Cebpe", "S100a8", "Csf1r", "Csf2ra", "Csf2rb", "Maf", #"Mafb", "Ifi44", "Selp", "Rigi", "Ifih1", "Eif2ak2", "Zfp36")  # replace with #your list
+
+genes_to_plot <- c("Cldn5", "") 
+
+fix.sc <- scale_colour_gradientn(
+  colours = rev(brewer.pal(n = 11, name = "RdBu")),
+  limits = c(-3, 3)
+)
+
+for (gene in genes_to_plot) {
+  
+  p_list <- FeaturePlot(
+    CombinedCluster.LTHSC,
+    features = gene, reduction = "umap",
+    max.cutoff = 3, min.cutoff = -3,
+    pt.size = 1, 
+    split.by = "group",
+    label = FALSE, repel = TRUE,
+    combine = FALSE
+  )
+  
+  # apply custom color scale
+  p_list <- lapply(p_list, function(x) x + fix.sc)
+  
+  # combine plots
+  combined_plot <- wrap_plots(p_list)
+  
+  # save
+  ggsave(
+    filename = paste0("2025-07-23_", gene, "_UMAP_lthsc_clusts.pdf"),
+    plot = combined_plot,
+    device = cairo_pdf,
+    width = 12, height = 10, units = "in"
+  )
+  
+  message("Saved plot for ", gene)
+}
+
+```
+
+
+## Visualize IFN-regulated genes in dotplot of the LT-HSC 1 and LT-HSC2
+```{r}
+lthsc_subclust_ifn_signatures_dotplot<-print(DotPlot(CombinedCluster.LTHSC, cols = "RdYlBu", assay = "SCT", features = c("IRG_list11", "ISG_score1"),group.by = "seurat_clusters"))+
+  theme(axis.text.x=element_text(size=rel(0.8), angle=90))+
+  ggtitle("IRG expression")+
+  theme(plot.title = element_text(hjust=0.5))
+
+ggsave("2025-02-17_LT-HSC_subcluster_ifn_signatures_dotplot.pdf", lthsc_subclust_ifn_signatures_dotplot, device=cairo_pdf,width = 4, height = 4, units = c("in"))
+```
+
+## Violin plot LT-HSC1 and LT-HSC2 IRG signatures
+```{r}
+#HSC IRG score
+IRGHSCviolinplot<-VlnPlot(CombinedCluster.LTHSC, features ="IRG_list11", split.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))
+
+ggsave("2025-02-07_IRG_HSC_Score_Violin.pdf", IRGHSCviolinplot, device=cairo_pdf,width = 8, height = 5, units = c("in"))
+
+#HSC ISG score
+ISGHSCviolinplot<-VlnPlot(CombinedCluster.LTHSC, features ="ISG_score1", split.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))
+
+ggsave("2025-02-07_ISG_HSC_Score_Violin.pdf", ISGHSCviolinplot, device=cairo_pdf,width = 8, height = 5, units = c("in"))
+
+VlnPlot(CombinedCluster.LTHSC, features ="NucSensors1", group.by = "seurat_clusters", split.by = "group",pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 0.8))
+
+```
+
+## Aging scores from 2 LT-HSC clusters
+```{r}
+
+LTHSC2<-subset(CombinedCluster.LTHSC, seurat_clusters %in% c("LT-HSC2")) # subset
+
+VlnPlot(LTHSC2, features ="Aging_HSC_Marker-Score-Svendsen1", group.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))+ stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9)) + stat_compare_means(comparisons = list(c("Young alcohol", "Young control"), c("Old alcohol", "Old control")), method = "wilcox", p.adjust.method = "fdr", label = "p.signif") + scale_y_continuous(limits = c(0, 1))
+```
+
+
+```{r}
+Hoxb5<-FeaturePlot(CombinedCluster.LTHSC,
+            features = "Hoxb5", reduction = "umap",
+            max.cutoff = 5, min.cutoff = -5,
+            pt.size = 1, 
+            split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-5, 5))
+
+Hoxb5.2 <- lapply(Hoxb5, function (x) x + fix.sc)
+Hoxb5allumap<-CombinePlots(Hoxb5.2 )
+Hoxb5allumap
+
+VlnPlot(CombinedCluster.LTHSC, features ='gene-id "X24-LINE"; transcript-id "LINE/L2"', split.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange'))
+```
+
+
+## Extract aging scores from LTHSC subsets for statistical analysis in Prism
+```{r}
+agingscore.lthsc.subset<-CombinedCluster.LTHSC@meta.data$`Aging_HSC_Marker-Score-Svendsen1`
+group.lthsc.subset<-CombinedCluster.LTHSC@meta.data$group
+
+celltype.lthsc.subset<-CombinedCluster.LTHSC@meta.data$sub_cluster
+
+agingscoreextracted.lthsc.subset<-data.frame(group.lthsc.subset, celltype.lthsc.subset,agingscore.lthsc.subset)
+
+xlsx::write.xlsx(agingscoreextracted.lthsc.subset, "2025-02-21_AgingScores.lthsc.subset.xlsx") # save into an Excel file
+
+
+### HSC aging score LTHSC subclusters
+AgingHSCviolinplot<-VlnPlot(CombinedCluster.LTHSC, features ="Aging_HSC_Marker-Score-Svendsen1", split.by = "group", pt.size = 0) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange')) #+ 
+  geom_text(data = medians, aes(x = cluster, y = median, label = round(median, 2)),color = "black", vjust = -1, size = 5)
+
+
+ggsave("2025-02-07_Aging_Score_LTHSC-Subcluster_Violin.pdf", AgingHSCviolinplot, device=cairo_pdf,width = 8, height = 5, units = c("in"))
+
+
+```
+
+
+# Differential gene expression analysis to determine subcluster markers of LT-HSC1 and LT-HSC2
+```{r}
+# compute differentially-expressed genes in each clusters against all clusters and report only positively upregulated genes to be considered as cluster markers
+Idents(CombinedCluster.LTHSC) <- "seurat_clusters2"
+
+markersPreCompute_LTHSC_subclust2 <- PrepSCTFindMarkers(CombinedCluster.LTHSC, assay = "SCT")
+all_markers_LTHSC_subclust2 <- FindAllMarkers(markersPreCompute_LTHSC_subclust2,
+                              min.pct = 0.1,
+                              only.pos = T,
+                              min.diff.pct = 0.1,
+                              logfc.threshold = 0.2, recorrect_umi=FALSE)
+
+all_markers_LTHSC_subclust2
+
+#save the DEG results of LTHSC subclusters
+WriteXLS::WriteXLS(all_markers_LTHSC_subclust2, "DEG_LT-HSC_subcluster2_markers.xlsx", col.names =TRUE, row.names =TRUE)
+
+######## Visualize top 10 markers
+all_markers_LTHSC_subclust2 %>%
+  group_by(cluster) %>%
+  dplyr::filter(avg_log2FC > 1) %>%
+  dplyr::filter(p_val_adj < 0.01) %>%
+  dplyr::filter(pct.1 > 0.4) %>%
+  #slice_head(n = 10) %>%
+  ungroup() -> top10_2
+
+top10_2
+DefaultAssay(CombinedCluster.LTHSC) <- "SCT"
+heatmap_marker_orig.subclust.Gene_top10_2<-DoHeatmap(subset(CombinedCluster.LTHSC, downsample = 300), features = top10_2$gene, size = 3, draw.lines = "TRUE", ) + theme(axis.text.y = element_text(size = 5, face = "italic", color = "black")) #+ scale_fill_viridis(option = "inferno", direction = 1)
+
+heatmap_marker_orig.subclust.Gene_top10_2
+ggsave("2025-07-24_Top_genes_hsc1_hsc2.cluster-markers.pdf", heatmap_marker_orig.subclust.Gene_top10_2, device=cairo_pdf,width = 5, height = 3, units = c("in"))
+
+```
+
+
+# Differential gene expression analysis to determine subcluster markers of LT-HSC1, LT-HSC2, LT-HSC3
+```{r}
+# compute differentially-expressed genes in each clusters against all clusters and report only positively upregulated genes to be considered as cluster markers
+Idents(CombinedCluster.LTHSC) <- "seurat_clusters3"
+
+markersPreCompute_LTHSC_subclust3 <- PrepSCTFindMarkers(CombinedCluster.LTHSC, assay = "SCT")
+all_markers_LTHSC_subclust3 <- FindAllMarkers(markersPreCompute_LTHSC_subclust3,
+                              min.pct = 0.1,
+                              only.pos = T,
+                              min.diff.pct = 0.1,
+                              logfc.threshold = 0.2, recorrect_umi=FALSE)
+
+all_markers_LTHSC_subclust3
+
+#save the DEG results of LTHSC subclusters
+WriteXLS::WriteXLS(all_markers_LTHSC_subclust3, "DEG_LT-HSC_subcluster3_markers.xlsx", col.names =TRUE, row.names =TRUE)
+
+######## Visualize top 10 markers
+all_markers_LTHSC_subclust3 %>%
+  group_by(cluster) %>%
+  dplyr::filter(avg_log2FC > 1) %>%
+  dplyr::filter(p_val_adj < 0.01) %>%
+  dplyr::filter(pct.1 > 0.4) %>%
+  #slice_head(n = 10) %>%
+  ungroup() -> top10_3
+
+top10_3
+DefaultAssay(CombinedCluster.LTHSC) <- "SCT"
+heatmap_marker_orig.subclust.Gene_top10_3<-DoHeatmap(subset(CombinedCluster.LTHSC, downsample = 300), features = top10_3$gene, size = 3, draw.lines = "TRUE", ) + theme(axis.text.y = element_text(size = 5, face = "italic", color = "black")) #+ scale_fill_viridis(option = "inferno", direction = 1)
+
+heatmap_marker_orig.subclust.Gene_top10_3
+ggsave("2025-07-24_Top_genes_hsc1_hsc2_hsc3.cluster-markers.pdf", heatmap_marker_orig.subclust.Gene_top10_3, device=cairo_pdf,width = 5, height = 3, units = c("in"))
+
+```
+
+## Plot top 10 marker genes of lthsc subsets
+```{r}
+markers_heatmap.lthsc.subset<-dittoSeq::dittoHeatmap(CombinedCluster.LTHSC, all_markers_LTHSC_subclust$gene, 
+                       annot.by = "sub_cluster",
+                       scaled.to.max = TRUE,
+                       show_colnames = FALSE,
+                       #highlight.features = c("Wfdc17", "Flt3", "Adgrg3", "Dusp5", "Mn1", "Pdzk1ip1", "Procr", "Mecom", "Esam", "Meis1", "H2ac8", "Bub1", "Kif11", "Cdk1", "Hmmr", "Mpeg1", "Siglech", "Ly86", "Irf8", "Lgals1")
+                       )
+
+ggsave("2025-01-15_Top10-cluster-markers.lthsc.subset.pdf", markers_heatmap.lthsc.subset, device=cairo_pdf,width = 8, height = 10, units = c("in"))
+```
+
+
+
+```{r}
+install_github("GuangchuangYu/bitr")
+```
+
+
+## Visualize some gene markers in dotplot
+```{r}
+print(DotPlot(CombinedCluster.LTHSC, cols = "RdYlBu", assay = "RNA", features = c("Cd74", "H2-Aa", "Cd274", "Fos", "Egr1", "Klf2", "Klf6", "Cebpb", "Ly6d","Dusp1", "Slfn2", "Cd34", "Serpinb1a", "Cd55", "Cdkn1c", "Ifi44", "Vwf", "Zfp612", "Selp", "Oasl2", "Btg2", "Zfp36", "Procr", "Slamf1", "Esam", "Cd48"), 
+              group.by = "seurat_clusters"))+
+  theme(axis.text.x=element_text(size=rel(0.8), angle=90))+
+  ggtitle("GeneMarkers")+
+  theme(plot.title = element_text(hjust=0.5))
+```
+## Visualize some gene markers in dotplot
+```{r}
+LTHSC_subclust_dotplot<-print(DotPlot(CombinedCluster.LTHSC, cols = "RdYlBu", assay = "RNA", features = c("Slamf1", "Egr1", "Aldh1a1", "Lgals1", "Cavin2","Selp", "Cd38", "Itgb3", "Clec1a", "Clca3a1","Ntf3", "Clu", "Osmr", "Spi1", "Fos", "Junb", "Socs3", "Pf4", "Eif2ak2", "Eif2ak3", "Samhd1", "Ifih1", "Ifit1", "Ifitm1", "Rigi", "Dhx58", "Irf3", "Irf7", "Cgas", "Sting1", "Nfkb1", "Ddx60", "Trim28", "Isg15", "Irf8", "Adar", "S100a9", "Cd74", "Mki67"), 
+              split.by = "group", 
+              group.by = "seurat_clusters"))+
+  theme(axis.text.x=element_text(size=rel(0.8), angle=90))+
+  ggtitle("GeneMarkers")+
+  theme(plot.title = element_text(hjust=0.5))
+
+ggsave("2025-03-02_Dotplot.lthsc.subset.pdf", LTHSC_subclust_dotplot, device=cairo_pdf,width = 10, height = 6, units = c("in"))
+```
+#12 Differential gene expression analysis comparing 4 groups of LT-HSC subclusters
+
+```{r}
+#Dataset Vorbereitung vor Gene und TE Expressionsanalyse
+options(future.globals.maxSize = 26000 * 1024^2) # Diese Linie ist fur den Arbeitspeicher RAM vergrossern. Andernsfall das Kode arbeitet nicht
+
+#Idents(CombinedCluster) <- "seurat_annotations"
+#CombinedCluster.LTHSC$seurat_annotations <- Idents(CombinedCluster.LTHSC)
+
+# Hier kombiniere ich Old Alcohol RY22 und Old Alcohol 2 RY23 Samples zu Old Alcohol Grup.
+
+#CombinedCluster.LTHSC$celltype.stim <- paste(CombinedCluster.LTHSC$seurat_annotations,CombinedCluster.LTHSC$group, sep = "_")
+#Idents(CombinedCluster.LTHSC) <- "celltype.stim"
+CombinedCluster.LTHSC<-PrepSCTFindMarkers(CombinedCluster.LTHSC)
+
+```
+
+```{r}
+# Hier analyziere ich die DEGs von Old Alcohol gegen Old Control beim LT-HSC Cluster mit Wilcoxon-Rank Sum Test
+
+options(future.globals.maxSize = 26000 * 1024^2) # Diese Linie ist fur den Arbeitspeicher RAM vergrossern. Andernsfall das Kode arbeitet nicht
+
+OAvsOCWilcox.lthsc.subclust<- FindMarkers(CombinedCluster.LTHSC, ident.1 = "LT-HSC2_Old alcohol", ident.2 = "LT-HSC2_Old control", test.use = "wilcox", verbose = FALSE)
+```
+
+```{r}
+# Generate a new column called sub_cluster in the metadata
+CombinedCluster$sub_cluster <- as.character(Idents(CombinedCluster))
+
+# Change the information of cells containing sub-cluster information
+CombinedCluster$sub_cluster[Cells(CombinedCluster.LTHSC)] <- paste(Idents(CombinedCluster.LTHSC))
+
+DimPlot(CombinedCluster, group.by = "sub_cluster")
+```
+
+
+```{r}
+colors <- c("#e89c0e", "#b07010","#99bd4b","#5fc26f","#1F78B4","#A6CEE3", "#E31A1C","#E3751C","#600078", "#33A02C", "#FDBF6F", "#526317", "#ae5e93", "#784620", "#edbbe3", "#eb9d9d")
+
+All<-print(DimPlot(object = CombinedCluster, 
+        reduction = "umap", 
+        label = F,
+        pt.size = 0.1,
+        repel = T,
+        group.by = "sub_cluster",
+        label.size = 4,
+        cols = colors)) + ggtitle("All Group UMAP") +
+  theme(plot.title = element_text(hjust=0.5))
+All
+```
+
+
+```{r}
+LTHSC_IRG<-FeaturePlot(CombinedCluster,
+            features = "IRG_list21", reduction = "umap",
+            max.cutoff = 0.4, min.cutoff = -0.4,
+            pt.size = 0.1, 
+            split.by = "group",
+            label = FALSE, repel = TRUE,
+            combine = FALSE) 
+
+fix.sc.IRG2<-scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")), limits = c(-0.4, 0.4))
+
+LTHSC_IRG_plot<- lapply(LTHSC_IRG, function (x) x + fix.sc.IRG2)
+IRG2allumap<-CombinePlots(LTHSC_IRG_plot)
+print(IRG2allumap)
+
+```
+
+# I create a UMAP by highlighting only a specific cluster with different colors of treatment group
+```{r}
+# 1. Extract UMAP embeddings
+umap_data <- as.data.frame(Embeddings(CombinedCluster, reduction = "umap"))
+umap_data$Cell <- rownames(umap_data)
+
+# 2. Extract metadata
+meta_data <- CombinedCluster@meta.data
+meta_data$Cell <- rownames(meta_data)
+
+# 3. Merge UMAP + metadata
+plot_data <- left_join(umap_data, meta_data, by = "Cell")
+
+# 4. Choose cluster to highlight
+target_cluster <- c("Baso-Mast-Prog")  # Note: check whether your clusters are strings or numbers
+
+# 5. Mark cells for highlighting
+plot_data$highlight <- ifelse(plot_data$CellType == target_cluster, "yes", "no")
+
+# Define custom colors for each treatment group
+#custom_colors <- c("Young control" = "#47cfed",
+  #                 "Young alcohol" = "#f26d73", 
+   #                "Old control" = "#6b6868",
+    #               "Old alcohol" = "#f7b531")  
+
+
+custom_colors <- c("Young control" = "#131bf2", 
+                   "Young alcohol" = "#eb0707",  
+                   "Old control" = "#0a0000",
+                   "Old alcohol" = "#f7b80a") 
+
+# Plot UMAP with custom colors for treatment groups
+umap_plot<-ggplot(plot_data, aes(x = umap_1, y = umap_2)) +
+  geom_point(data = dplyr::filter(plot_data, highlight == "no"),
+             color = "lightgray", size = 0.1, alpha = 0.3) +
+  geom_point(data = dplyr::filter(plot_data, highlight == "yes"),
+             aes(color = group), size = 0.1) +
+  scale_color_manual(values = custom_colors) +  # Apply custom colors here
+  labs(title = paste("UMAP: Highlighting Cluster", target_cluster, "by group"),
+       color = "group") +
+  theme_classic()
+
+ggsave("2025-05-21_UMAP_clusters_BasoMast.pdf", plot = umap_plot, width = 8, height = 6, useDingbats = FALSE)
+
+```
+
+```{r}
+print(DotPlot(CombinedCluster.LTHSC, cols = "RdYlBu", assay = "SCT", features = c("Selp", "Mt1", "Nupr1", "Clec1a", "Mt2", "Clca3a1", "Sbspon", "Trpc1", "Klhl4", "Neo1", "Dnm3", "Dhrs3", "Wwtr1", "Osmr", "Clu", "Phf11d", "Tacstd2", "Tmem215", "Sult1a1", "Plscr1", "Gadd45g", "Tgm2", "Prtn3"), 
+              group.by = "group"))+
+  theme(axis.text.x=element_text(size=rel(0.8), angle=90))+
+  ggtitle("GeneMarkers")+
+  theme(plot.title = element_text(hjust=0.5))
+```
+
+
+# Analyse aging score from my ownlist
+```{r}
+CombinedClusterNew<-NormalizeData(CombinedCluster, assay = "RNA")
+DefaultAssay(CombinedClusterNew) <- "RNA"
+CombinedClusterNew<-JoinLayers(CombinedClusterNew)
+
+test.object<-AddModuleScore(
+  object = CombinedClusterNew,
+  features = list(c("Selp", "Clec1a", "Clca3a1", "Clu", "Slamf1",  "Aldh1a1", "Tmem47", "Egr1", "Osmr", "Ntf3")),
+  name = "aginggenes",
+  slot = "data",
+  assay = "RNA"
+)
+# aging score violin plot for all cluster
+aging.vio<-VlnPlot(test.object, features ="aginggenes1", split.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange')) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9))
+ggsave("aging.score.pdf", plot = aging.vio, width = 16, height = 5, useDingbats = FALSE)
+
+LTHSC.new<-subset(test.object, CellType %in% c("LT-HSC")) # subset
+# aging score violin plot for LT-HSC cluster
+aging.vio.lthsc<-VlnPlot(LTHSC.new, features ="Aging_HSC_Marker-Score-Svendsen1", split.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange')) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9))
+ggsave("aging.score.lthsc.pdf", plot = aging.vio.lthsc, width = 16, height = 5, useDingbats = FALSE)
+```
+
+# Analyse P53 target gene module scores
+```{r}
+test.object<-AddModuleScore(
+  object = CombinedClusterNew,
+  features = list(c("Cdkn1a", "Eda2r", "Phlda3", "Bax", "Zmat3", "Pvt1", "Sulf2", "Ccng1", "Bbc3", "Perp", "Casp1", "Aen", "Tnfrsf10b", "Ctsd", "Ier5", "Pml")),
+  name = "P53haem",
+  slot = "data",
+  assay = "RNA"
+)
+
+p53Haem<-VlnPlot(test.object, features ="P53haem1", split.by = "group", pt.size = 0) + ggplot2::scale_fill_manual(values = c('blue','red', 'grey', 'orange')) + stat_summary(fun = median, geom = "point", size = 0.5, color = "yellow", position = position_dodge(width = 0.9)) + geom_boxplot(width = 0.1, color = "black", alpha = 0.5, position = position_dodge(width = 0.9))
+
+ggsave("P53Haem.score.pdf", plot = p53Haem, width = 16, height = 5, useDingbats = FALSE)
+
+```
+
+
+#13 Relabeling the global UMAP cluster by incorporating LTHSC subclusters
+```{r}
+CombinedCluster$cluster_renamed <- CombinedCluster$CellType 
+CombinedCluster$cluster_renamed <- as.character(CombinedCluster$cluster_renamed)
+Idents(CombinedCluster.LTHSC) <- "seurat_clusters2"
+cells_lthsc1<-WhichCells(CombinedCluster.LTHSC, idents = "LT-HSC1")
+cells_lthsc2<-WhichCells(CombinedCluster.LTHSC, idents = "LT-HSC2")
+CombinedCluster$cluster_renamed[cells_lthsc1] <- "LT-HSC1"
+CombinedCluster$cluster_renamed[cells_lthsc2] <- "LT-HSC2"
+Idents(CombinedCluster) <- "cluster_renamed"
+
+CombinedCluster@meta.data$cluster_renamed <- factor(x = CombinedCluster@meta.data$cluster_renamed, levels = c("LT-HSC1", "LT-HSC2", "ST-HSC", "Unknown","MPP2", "MPP3", "MPP4/LMPP", "MEP", "GMP", "MDP", "CLP", "CDP", "Baso-Mast-Prog", "pDC/DC-prog", "B cell prog", "T cell prog")) # relevel cluster order
+
+Idents(CombinedCluster) <- "cluster_renamed"
+
+# Define colors & order
+  cluster_colors <- c(
+    "LT-HSC1" = "#e3d132",
+    "LT-HSC2" = "#e36789",
+    "ST-HSC" = "#5fc26f",
+    "MPP2" = "#600078",
+    "MPP3" = "#E3751C",
+    "MPP4/LMPP" = "#99bd4b",
+    "GMP" = "#edbbe3",
+    "MDP" = "#E31A1C",
+    "CLP" = "#1F78B4",
+    "CDP" = "#FDBF6F",
+    "Baso-Mast-Prog" = "#eb5252",
+    "T cell prog" = "#ae5e93",
+    "B cell prog" = "#33A02C",
+    "pDC DC prog" = "#526317",
+    "MEP" = "#784620",
+    "Unknown" = "#A6CEE3"
+  )
+
+print(DimPlot(object = CombinedCluster, 
+        reduction = "umap", 
+        label = F,
+        pt.size = 0.1,
+        repel = T,
+        label.size = 4,
+        cols = cluster_colors)) + ggtitle("All Group UMAP") +
+  theme(plot.title = element_text(hjust=0.5))
+
+saveRDS(CombinedCluster, file = "all_seurat_clusters_withsubclust.rds")
+```
+
+
+```{r}
+sessionInfo()
+```
+

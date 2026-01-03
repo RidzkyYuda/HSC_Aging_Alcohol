@@ -1,0 +1,587 @@
+title: "Cluster identification based on the expression markers"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+Author: Ridzky Yuda, Ph.D.
+Date: July 28th, 2024
+# 1 Install Required Dependencies
+```{r}
+#remotes::install_github("satijalab/seurat", "seurat5", quiet = TRUE)
+#install.packages("sctransform")
+#install.packages("harmony")
+#BiocManager::install("harmony", version = "3.18")
+#BiocManager::install("glmGamPoi")
+#BiocManager::install("clustermole")
+
+```
+
+# 2 Activate the libraries
+```{r}
+library(Seurat)
+library(patchwork)
+library(sctransform)
+library(harmony)
+library(ggplot2)
+library(patchwork)
+library(tidyverse)
+library(tidyverse)
+library(RCurl)
+library(cowplot)
+library(dplyr)
+library(glmGamPoi)
+library(ggsci)
+library(RCurl)
+library(AnnotationHub)
+```
+
+# 2. Load Integrated SCtransformed Seurat Object for Cluster generation
+```{r}
+IntegratedHSPCwithCC.Score <- readRDS("~/scratch4-mjung9/ryuda1/RY27_LSK_scRNA-seq_scTE/2024-10-01_scTransformation/IntegratedHSPCwithCC.Score.rds")
+```
+
+# Calculate PCA 
+```{r}
+IntegratedHSPCwithCC.Score.PCA <- RunPCA (IntegratedHSPCwithCC.Score)
+```
+# Calculate Neighbors
+```{r}
+IntegratedHSPCwithCC.Score.PCA <- FindNeighbors(IntegratedHSPCwithCC.Score.PCA, dims = 1:15, reduction = "integrated.dr")
+```
+# Calculate the clusters
+```{r}
+IntegratedHSPCwithCC.Score.PCA <- FindClusters(IntegratedHSPCwithCC.Score.PCA, resolution = 1.2)
+```
+# Run UMAP
+```{r}
+IntegratedHSPCwithCC.Score.PCA <- RunUMAP(IntegratedHSPCwithCC.Score.PCA, dims = 1:15, reduction = "integrated.dr")
+
+```
+
+# Visualize UMAP based on the parameter above
+```{r}
+UMAP<-DimPlot(IntegratedHSPCwithCC.Score.PCA, reduction = "umap", group.by = "seurat_clusters", label = T, shuffle = TRUE) +
+  theme(aspect.ratio = 1, legend.text = element_text(size = rel(0.8))) #+
+  #scale_color_igv()
+
+UMAP
+
+```
+# Expression some TE on UMAP clusters
+```{r}
+FeaturePlot(IntegratedHSPCwithCC.Score.PCA,"Mecom") + 
+  scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral"))) + ggtitle("Mecom: LT-HSC")
+
+FeaturePlot(IntegratedHSPCwithCC.Score.PCA,"Slamf1") + 
+  scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral"))) + ggtitle("Slamf1: LT-HSC")
+
+FeaturePlot(IntegratedHSPCwithCC.Score.PCA,"Cd48") + 
+  scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral"))) + ggtitle("Cd48: LT-HSC")
+
+FeaturePlot(IntegratedHSPCwithCC.Score.PCA,"Ly6a") + 
+  scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral"))) + ggtitle("Ly6a: LT-HSC")
+
+FeaturePlot(IntegratedHSPCwithCC.Score.PCA,"Procr") + 
+  scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral"))) + ggtitle("Procr: LT-HSC")
+
+FeaturePlot(IntegratedHSPCwithCC.Score.PCA,'gene-id "X12-DNA"; transcript-id "DNA/TcMar-Tigger"') + 
+  scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral"))) + ggtitle("X12-DNA:DNA/TcMar-Tigger: LT-HSC")
+
+FeaturePlot(IntegratedHSPCwithCC.Score.PCA,'gene-id "MLT2B2"; transcript-id "LTR/ERVL"') + 
+  scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "Spectral"))) + ggtitle("MLT2B2:LTR/ERVL: LT-HSC")
+
+```
+
+# Vorbereitung des Dataset vor DEG Analyzierung 
+```{r}
+# Find DE features between HSPC young alcohol vs young control
+#Idents(test.data) <- "seurat_annotations"
+test.data <- IntegratedHSPCwithCC.Score.PCA
+test.data$seurat_annotations <- Idents(test.data)
+
+# Hier analyziere ich die beide Old alcohol1 und Old alcohol2 samples als Old alcohol grup. In kurze analyziere ich als Beide in Alcohol grup im LT-HSC Kluster
+
+test.data$celltype.stim <- paste(test.data$seurat_annotations,test.data$group, sep = "_")
+Idents(test.data) <- "celltype.stim"
+test.data<-PrepSCTFindMarkers(test.data)
+options(future.globals.maxSize = 26000 * 1024^2) # Diese Linie ist fur den Arbeitspeicher RAM vergrossern. Andernsfall das Kode arbeitet nicht
+OAvsOC<- FindMarkers(test.data, ident.1 = "1_Old alcohol", ident.2 = "1_Old control", test.use = "t", verbose = FALSE)
+DEGOAvsOC<-rownames(OAvsOC)
+OAvsOC<- cbind(OAvsOC,DEGOAvsOC)
+WriteXLS::WriteXLS(OAvsOC, "OAvsOC_LT-HSC_DEG.xlsx")
+
+# Hier analyziere ich die beide Old alcohol1 und Old alcohol2 samples als Old alcohol grup. In kurze analyziere ich als Beide in Alcohol grup im LT-HSC Kluster
+
+test.data$celltype.stim <- paste(test.data$seurat_annotations,test.data$group, sep = "_")
+Idents(test.data) <- "celltype.stim"
+test.data<-PrepSCTFindMarkers(test.data)
+options(future.globals.maxSize = 26000 * 1024^2) # Diese Linie ist fur den Arbeitspeicher RAM vergrossern. Andernsfall das Kode arbeitet nicht
+OAvsOC<- FindMarkers(test.data, ident.1 = "1_Old alcohol", ident.2 = "1_Old control", test.use = "t", verbose = FALSE)
+DEGOAvsOC<-rownames(OAvsOC)
+OAvsOC<- cbind(OAvsOC,DEGOAvsOC)
+WriteXLS::WriteXLS(OAvsOC, "OAvsOC_LT-HSC_DEG.xlsx")
+
+```
+
+```{r}
+HSC <- subset(IntegratedHSPCwithCC.Score.PCA, seurat_clusters %in% c("0", "2", "5", "16"))
+print(DotPlot(HSC, cols = "RdYlBu", assay = "RNA", features = c('gene-id "RLTR4-MM-int"; transcript-id "LTR"', 'gene-id "RLTR4-Mm"; transcript-id "LTR/ERV1"', 'gene-id "B2-Mm1a"; transcript-id "SINE/B2"', 'gene-id "X12-DNA"; transcript-id "DNA/TcMar-Tigger"', 'gene-id "MLT2B2"; transcript-id "LTR/ERVL"', 'gene-id "L1MdN-I"; transcript-id "LINE/L1"'), group.by = "group"))+
+  theme(axis.text.x=element_text(size=rel(0.8), angle=90))+
+  ggtitle("Selected genes in LT-HSC")+
+  theme(plot.title = element_text(hjust=0.5))
+```
+
+
+# Find markers for all the clusters
+Return markers that has positive changes on each cluster
+```{r}
+markersPreCompute <- PrepSCTFindMarkers(IntegratedHSPCwithCC.Score.PCA)
+all_markers <- FindAllMarkers(markersPreCompute,
+                              min.pct = 0.25,
+                              only.pos = T,
+                              min.diff.pct = 0.25)
+```
+
+```{r}
+saveRDS(markersPreCompute,"markersPreCompute.rds")
+```
+
+```{r}
+saveRDS(all_markers, "ComputedAllMarkers.rds")
+```
+
+# Connect the annotation to the gene
+```{r}
+# Connect to AnnotationHub
+ah <- AnnotationHub()
+
+# Access the Ensembl database for organism
+ahDb <- query(ah, 
+              pattern = c("Mus musculus", "EnsDb"), 
+              ignore.case = TRUE)
+
+# Acquire the latest annotation files
+id <- ahDb %>%
+        mcols() %>%
+        rownames() %>%
+        tail(n = 1)
+
+# Download the appropriate Ensembldb database
+edb <- ah[[id]]
+
+# Extract gene-level information from database
+annotations <- genes(edb, 
+                     return.type = "data.frame")
+
+# Select annotations of interest
+annotations <- annotations %>%
+        dplyr::select(gene_id, gene_name, seq_name, gene_biotype, description)
+```
+
+# Merge gene annotations to marker results
+```{r}
+all_markers_additional_annotation <- left_join(all_markers, 
+                         annotations[, c(1,2,4,5)], 
+                         by = c("gene" = "gene_name"))
+
+View(all_markers_additional_annotation)  
+all_markers_additional_annotation<-as.data.frame(all_markers_additional_annotation)
+WriteXLS::WriteXLS(all_markers_additional_annotation, "all_markers_additional_annotation.xlsx")
+```
+                     
+```{r}
+# rearrange marker columns
+all_markers_additional_annotation <- all_markers_additional_annotation[, c(7:8, 1:6, 9:10)]
+```
+
+```{r}
+# Write results to file
+write.csv(all_markers_additional_annotation, "all_markers.csv", quote = F)
+```
+
+```{r}
+print(DotPlot(IntegratedHSPCwithCC.Score.PCA, cols = "RdYlBu", assay = "RNA", features = c("Slamf1","Cd48", "Flt3", "Cd34", "Kit", "Ly6a","Procr", "Mecom","Trpc6","Gata1", "Esam", "Tie1", "Mki67", "Top2a","Eif2ak2", "Lgals1", "Cd19", "Ly6d", "Itgax", "Cebpb", "Cebpd", "Lmo4","Spi1", "Irf8", "Klf1"), group.by ="seurat_clusters"))+
+  theme(axis.text.x=element_text(size=rel(1), angle=90))+
+  ggtitle("Gene markers expression in each cluster")+
+  theme(plot.title = element_text(hjust=0.5))
+```
+
+
+# Cluster 2 vs 10
+```{r}
+cluster2vs10.markers <-FindMarkers(markersPreCompute, ident.1 = 2, ident.2 = 10)
+view(cluster2vs10.markers)
+```
+Based on the comparison between cluster 2 and 10, cluster 10 express Flt3 and Cd34 while still keeping some LT-HSC markers. Since the cells lack of Slamf1 expression, I am considering this cluster as ST-HSC
+
+# Cluster 2 vs 8
+```{r}
+cluster2vs8.markers <-FindMarkers(markersPreCompute, ident.1 = 2, ident.2 = 8)
+view(cluster2vs8.markers)
+
+```
+# Cluster 10 vs 8
+```{r}
+cluster10vs8.markers <-FindMarkers(markersPreCompute, ident.1 = 10, ident.2 = 8)
+cluster10vs8.markers
+```
+# Cluster 2 vs 4
+```{r}
+cluster2vs4.markers <-FindMarkers(markersPreCompute, ident.1 = 2, ident.2 = 4)
+cluster2vs4.markers
+```
+```{r}
+cluster11.markers <-FindMarkers(markersPreCompute, ident.1 = 11,  only.pos= TRUE)
+cluster11.markers
+```
+# Cluster 2 vs 12
+```{r}
+cluster2vs12.markers <-FindMarkers(markersPreCompute, ident.1 = 2, ident.2 = 12)
+cluster2vs12.markers
+```
+
+# Cluster 20 markers
+```{r}
+cluster20.markers <-FindMarkers(markersPreCompute, ident.1 = 20,  only.pos= TRUE)
+cluster20.markers
+```
+Based on the markers expression of cluster 20, many of them fits with the Pietras et al for MPP3
+
+# Cluster 0 markers
+```{r}
+cluster0.markers <-FindMarkers(markersPreCompute, ident.1 = 0,  only.pos= TRUE)
+rownames (cluster0.markers)
+```
+
+# Cluster 1 markers
+```{r}
+cluster1.markers <-FindMarkers(markersPreCompute, ident.1 = 1,  only.pos= TRUE)
+rownames (cluster1.markers)
+```
+# Cluster 6 markers
+```{r}
+cluster6.markers <-FindMarkers(markersPreCompute, ident.1 = 6,  only.pos= TRUE)
+rownames (cluster6.markers)
+```
+
+# Cluster 18 markers
+```{r}
+cluster18.markers <-FindMarkers(markersPreCompute, ident.1 = 18,  only.pos= TRUE)
+rownames (cluster18.markers)
+```
+# Cluster 7 markers
+```{r}
+cluster7.markers <-FindMarkers(markersPreCompute, ident.1 = 7,  only.pos= TRUE)
+rownames (cluster7.markers)
+```
+# Cluster 26 markers
+```{r}
+cluster26.markers <-FindMarkers(markersPreCompute, ident.1 = 26,  only.pos= TRUE)
+rownames (cluster26.markers)
+```
+
+# Cluster 31 markers
+```{r}
+cluster31.markers <-FindMarkers(markersPreCompute, ident.1 = 31,  only.pos= TRUE)
+rownames (cluster31.markers)
+```
+
+# Cluster 32 markers
+```{r}
+cluster32.markers <-FindMarkers(markersPreCompute, ident.1 = 32,  only.pos= TRUE)
+cluster32.markers
+```
+Cluster 32 express many genes belong to erythroid progenitors described in Bacin et al
+
+```{r}
+FeaturePlot(IntegratedHSPCwithCC.Score.PCA, features = c("Pf4"), label = TRUE)
+```
+
+##### dfdf
+
+```{r}
+VlnPlot(IntegratedHSPCwithCC.Score.PCA, features = c("Ly6a", "Kit","Elane", "Mpo"), stack = T)
+```
+
+```{r}
+FeaturePlot(IntegratedHSPCwithCC.Score.PCA, features = c("Slamf1", "Cd48", "Cd34", "Flt3"), label = TRUE)
+```
+
+# UMAP visualization of LT-HSC markers based on markers identified in cluster 1 in Nestorowa et al Blood., 2016 paper
+```{r}
+FeaturePlot(IntegratedHSPCwithCC.Score.PCA, features = c("Trpc6", "Procr", "Esam", "Tie1"), label = TRUE)
+```
+Based on UMAP visualization and the results of FindAllMarkers computation, it is clear that cluster 1 belongs to LT-HSC. 
+
+The next step is to identify subpopulations of MPPs. Calbezas-Walscheid et al., Cell Stem Cell had identified different types of MPP markers including their signatures. MPP4 or LMPP has high Flt3/Flk2/CD135 expression compared to the rest of MPP subpopulations. Hence, Flt3 should be useful to differentiate between MPP4 and the other. Moreover, MPP4 show high expression of Cd48 and Cd34 but negative for Slamf1 (CD150). Based on that, the MPP4 should be forming clusters 0, 2, 9, 15, 7
+
+```{r}
+FeaturePlot(IntegratedHSPCwithCC.Score.PCA, features = c("Fcgr3", "Cd34", "Elane", "Kit", "Itgam", "Ly6g"), label = TRUE)
+```
+
+Next is to identify populations of other MPPs including MPP1, MPP2, and MPP3. Calbezas-Walscheid et al., Cell Stem Cell had identified that MPP3 with low or absence of FLT3 and Slamf1 but positive for CD48. For this, I think cluster 6 has that merits. To further check if Cluster 6 has MPP3 characteristics, I am going to check if they express highly myeloid-biased genes as the cells 
+
+#MPP2 signatures signatures based on Pietras Cell Stem Cell paper
+```{r}
+FeaturePlot(IntegratedHSPCwithCC.Score.PCA, features = c(), label = TRUE)
+```
+# MPP3 signatures based on Pietras Cell Stem Cell paper
+```{r}
+FeaturePlot(IntegratedHSPCwithCC.Score.PCA, features = c("Cd7", "Lgals1", "Ly6c1"), label = TRUE)
+```
+# Quiescence gene in HSC based on Sun et al., Leukemia 2020
+```{r}
+FeaturePlot(IntegratedHSPCwithCC.Score.PCA, features = c("Cd48"),  label = TRUE)
+```
+
+```{r}
+combined2 <- RenameIdents(object = IntegratedHSPCwithCC.Score.PCA,
+                         "0" = "LT-HSC",
+                         "1" = "MPP4",
+                         "2" = "ST-HSC",
+                         "3" = "CLP",
+                         "4" = "MPP4",
+                         "5" = "ST-HSC",
+                         "6" = "CLP",
+                         "7" = "Mito high prog",
+                         "8" = "ST-HSC",
+                         "9" = "CLP",
+                         "10" = "Mito high prog",
+                         "11" = "MPP3",
+                         "12" = "CyclingProg",
+                         "13" = "MPP3",
+                         "14" = "Baso/Mast progenitor",
+                         "15" = "Baso/Mast progenitor",
+                         "16" = "ST-HSC",
+                         "17" = "Mito high prog",
+                         "18" = "Mito high prog",
+                         "19" = "pDC/DC progenitor",
+                         "20" = "T cell progenitor",
+                         "21" = "PKR+ progenitor",
+                         "22" = "MPP3",
+                         "23" = "Baso/Mast progenitor",
+                         "24" = "T cell progenitor",
+                         "25" = "Ery progenitor", 
+                         "26" = "Mito high prog",
+                         "27" = "B cell prog",
+                         "28" = "B cell prog",
+                         "29" = "Myeloid",
+                         "30" = "Mito high prog",
+                         "31" = "Mito high prog"
+                         )
+
+UMAP2<-DimPlot(object = combined2, 
+        reduction = "umap", 
+        label = T,
+        pt.size = 0.5,
+        repel = T,
+        label.size = 3)
+```
+
+# store the new seurat object after recombined some clusters
+```{r}
+saveRDS(combined2, "combined2Cluster.Seurat.rds")
+```
+
+# Cell type proportion after clustering
+# Cell type distribution
+```{r}
+# population frequency
+pt <- table(Idents(combined2), combined2$sample)
+pt <- as.data.frame(pt)
+
+ggplot(pt, aes(x = Var2, y = Freq,fill = Var1))+
+  theme_bw(base_size = 15) +
+  geom_col(position = "fill", width = 0.5) +
+  xlab("Group") +
+  ylab("Cell type proportion") + 
+  theme(legend.title = element_blank())
+
+```
+
+# Renaming clusters after discussion on October 24th 2024
+```{r}
+# Here I renamed clusters as follow
+# Cycling Progenitor clusters as MPP2
+# Myeloid cluster as neutrophil progenitor
+# Erythroid progenitor as MEP
+# PKR progenitor is ST-HSC
+# Cluster 20 is ILC progenitor because it expresses Ccl5
+# Cluster 17 should be DC progenitor because it expresses Cd74, Irf8, H2-Aa
+# CLUSTER 
+
+# references 
+#https://www.cell.com/cell/fulltext/S0092-8674(15)01493-2
+#https://www.nature.com/articles/s41556-018-0121-4
+#https://www.sciencedirect.com/science/article/pii/S0092867419308979
+
+combined3 <- RenameIdents(object = IntegratedHSPCwithCC.Score.PCA,
+                         "0" = "LT-HSC",
+                         "1" = "MPP4",
+                         "2" = "ST-HSC",
+                         "3" = "CLP",
+                         "4" = "MPP4",
+                         "5" = "ST-HSC",
+                         "6" = "CLP",
+                         "7" = "Unknown",
+                         "8" = "ST-HSC",
+                         "9" = "CLP",
+                         "10" = "MDP",
+                         "11" = "MPP3",
+                         "12" = "MPP2",
+                         "13" = "MPP3",
+                         "14" = "B cell prog",
+                         "15" = "Baso/Mast progenitor",
+                         "16" = "ST-HSC",
+                         "17" = "MDP",
+                         "18" = "B cell prog",
+                         "19" = "pDC/DC progenitor",
+                         "20" = "T cell progenitor",
+                         "21" = "ST-HSC",
+                         "22" = "MPP3",
+                         "23" = "Baso/Mast progenitor",
+                         "24" = "T cell progenitor",
+                         "25" = "MEP", 
+                         "26" = "B cell prog",
+                         "27" = "B cell prog",
+                         "28" = "B cell prog",
+                         "29" = "GMP",
+                         "30" = "pDC/DC progenitor",
+                         "31" = "CDP"
+                         )
+
+UMAP3<-DimPlot(object = combined3, 
+        reduction = "umap", 
+        label = TRUE,
+        pt.size = 0.5,
+        repel = T,
+        label.size = 3)
+UMAP3
+ggsave("2024-10-24_UMAP3.pdf", UMAP3, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+
+OriginalUMAP<-DimPlot(object = IntegratedHSPCwithCC.Score.PCA, 
+        reduction = "umap", 
+        label = TRUE,
+        pt.size = 0.5,
+        repel = T,
+        label.size = 3)
+OriginalUMAP
+ggsave("2024-10-24_OriginalUMAP.pdf", OriginalUMAP, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+```
+```{r}
+BcellMarker<-VlnPlot(IntegratedHSPCwithCC.Score.PCA, features = c("Pou2af1", "Slamf7", "Mzb1", "Cd79a", "Ikzf3", "Irf4","Cd19", "Nusap1", "Cd20", "Tnfrsf17", "Cd38", "Vpreb1", "Fcrla"), stack = TRUE)
+ggsave("2024-10-24_Bcellmarker.pdf", BcellMarker, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+```
+
+```{r}
+IdoAmitHSCMarker<-VlnPlot(IntegratedHSPCwithCC.Score.PCA, features = c("Slamf1","Ly6a", "Ifitm1", "Hlf", "Rbp1", "Mllt3", "Mecom", "Cd274", "Procr", "Myct1", "Ldhb", "Gimap6", "Oasl2", "Plk1s1", "Marveld2", "Pdzk1ip1", "Serpina3f"), stack = TRUE)
+ggsave("2024-10-24_IdoAmitHSCmarker.pdf", IdoAmitHSCMarker, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+```
+
+
+```{r}
+lymphomyelo<-VlnPlot(IntegratedHSPCwithCC.Score.PCA, features = c("Dntt", "Mpo", "Igh"), stack = TRUE)
+ggsave("2024-10-24_lymphomyelomarker.pdf", lymphomyelo, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+```
+
+```{r}
+IdoProg<-VlnPlot(IntegratedHSPCwithCC.Score.PCA, features = c("Vpreb1", "Fcrla", "Ccl5", "Hba-a2", "Car", "Ly86", "Csf1r", "C1qb", "Gstm1", "Fcnb", "Ltf", "Cd74", "Siglech", "Prss34", "Prg2", "Pf4"), stack = TRUE)
+ggsave("2024-10-24_IdoProgmarker.pdf", IdoProg, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+```
+
+```{r}
+monocyte<-VlnPlot(IntegratedHSPCwithCC.Score.PCA, features = c("Spi1", "Cebpa","Irf8", "Csf1r"), stack = TRUE)
+ggsave("2024-10-24_monocyte.pdf", monocyte, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+```
+
+```{r}
+DC<-VlnPlot(IntegratedHSPCwithCC.Score.PCA, features = c("Cd74", "Irf8", "Id2", "H2-Aa"), stack = TRUE)
+ggsave("2024-10-24_DC.pdf", DC, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+```
+
+
+```{r}
+# cMoP Florent Ginhoux
+cMoP<-VlnPlot(IntegratedHSPCwithCC.Score.PCA, features = c("Mpo", "Ctsg", "Cldn15", "Prtn3", "Alas1", "Dstn", "Mt1", "Anxa3", "Ly6c2", "Gstm1", "Nkg7", "Ap3s1", "Tuba4a", "Aldoa"), stack = TRUE)
+ggsave("2024-10-24_cMoP.pdf", cMoP, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+```
+
+```{r}
+# MDP Florent Ginhoux
+MDP<-VlnPlot(IntegratedHSPCwithCC.Score.PCA, features = c("Egr1", "Cd34", "Ccl3", "Dusp2", "Hspd1", "Cd69", "Ifi27", "Mif", "Ifitm1", "Nop58", "Dkc1", "Ccl4", "Nop56", "Rrp1b"), stack = TRUE)
+ggsave("2024-10-24_MDP.pdf", MDP, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+```
+
+```{r}
+# CDP Florent Ginhoux
+CDP<-VlnPlot(IntegratedHSPCwithCC.Score.PCA, features = c("Gngt2", "Bcl2", "Cdk6", "Xlr", "Irf8", "Zfp422", "Sat1", "Igfbp4", "Ccnb1", "mt-Nd3", "Elane", "Smc4", "Top2a", "Spc25", "Dek"), stack = TRUE)
+ggsave("2024-10-24_CDP.pdf", CDP, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+```
+
+```{r}
+# CCL5
+CCL5<-VlnPlot(IntegratedHSPCwithCC.Score.PCA, features = c("Ccl5", "Dntt"), stack = TRUE)
+ggsave("2024-10-24_Ccl5.pdf",CCL5, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+```
+
+```{r}
+# primitive progenitors
+primitive<-VlnPlot(IntegratedHSPCwithCC.Score.PCA, features = c("Slamf1", "Meis1", "Cd48", "Cd34", "Flt3", "Procr", "Mecom", "Hlf", "Marveld2", "Oasl2", "Ldhb", "Ptplad2", "Myct1", "Ifitm1", "Tgtp2", "Txnip", "Leprel2", "Mllt3", "Gimap6"), stack = TRUE)
+ggsave("2024-10-24_primitive.pdf", primitive, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+```
+
+```{r}
+# TF
+MDPTF<-VlnPlot(IntegratedHSPCwithCC.Score.PCA, features = c("Egr1", "Egr2", "Nab2", "Irf8"), stack = TRUE)
+ggsave("2024-10-24_MDPTF.pdf",MDPTF, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+```
+
+```{r}
+# TF
+MPPTF<-VlnPlot(IntegratedHSPCwithCC.Score.PCA, features = c("Ebf1", "Spi1", "Cebpa", "Tal1", "Gata3"), stack = TRUE)
+ggsave("2024-10-24_MPPTF.pdf",MPPTF, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+```
+
+### After renaming cluster in UMAP3
+```{r}
+# TF
+MPPTF_UMAP3<-VlnPlot(combined3, features = c("Ebf1", "Spi1", "Cebpa", "Tal1", "Gata3"), stack = TRUE)
+ggsave("2024-10-24_MPPTF_UMAP3.pdf",MPPTF_UMAP3, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+```
+
+```{r}
+# MDP Florent Ginhoux
+MDP_UMAP3<-VlnPlot(combined3, features = c("Egr1", "Cd34", "Ccl3", "Dusp2", "Hspd1", "Cd69", "Ifi27", "Mif", "Ifitm1", "Nop58", "Dkc1", "Ccl4", "Nop56", "Rrp1b"), stack = TRUE)
+ggsave("2024-10-24_MDP_UMAP3.pdf", MDP_UMAP3, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+```
+
+```{r}
+# CDP Florent Ginhoux
+CDP_UMAP3<-VlnPlot(combined3, features = c("Gngt2", "Bcl2", "Cdk6", "Xlr", "Irf8", "Zfp422", "Sat1", "Igfbp4", "Ccnb1", "mt-Nd3", "Elane", "Smc4", "Top2a", "Spc25", "Dek"), stack = TRUE)
+ggsave("2024-10-24_CDP_UMAP3.pdf", CDP_UMAP3, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+```
+
+```{r}
+# primitive progenitors
+primitive_UMAP3<-VlnPlot(combined3, features = c("Slamf1", "Meis1", "Cd48", "Cd34", "Flt3", "Procr", "Mecom", "Hlf", "Marveld2", "Oasl2", "Ldhb", "Ptplad2", "Myct1", "Ifitm1", "Tgtp2", "Txnip", "Leprel2", "Mllt3", "Gimap6"), stack = TRUE)
+ggsave("2024-10-24_primitive_UMAP3.pdf", primitive_UMAP3, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+```
+
+```{r}
+BcellMarker_UMAP3<-VlnPlot(combined3, features = c("Pou2af1", "Slamf7", "Mzb1", "Cd79a", "Ikzf3", "Irf4","Cd19", "Nusap1", "Cd20", "Tnfrsf17", "Cd38", "Vpreb1", "Fcrla"), stack = TRUE)
+ggsave("2024-10-24_Bcellmarker_UMAP3.pdf", BcellMarker_UMAP3, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+```
+
+```{r}
+MEP_UMAP3<-VlnPlot(combined3, features = c("Gp1bb", "F2rl2", "Pf4", "Itga2b", "Mpl", "Trem1l", "Mmrn1", "Nrgn", "Pbx1", "F2r", "Gp5", "Ctla2a", "Car1", "Rab27b", "Trpc6", "Tbxas1", "Tmem40", "Rgs18", "Klf1", "Gata1", "Gata2"), stack = TRUE)
+ggsave("2024-10-24_MEP_UMAP3.pdf", MEP_UMAP3, device=cairo_pdf,width = 13, height = 8, units = c("in"))
+```
+
+```{r}
+saveRDS(combined3, "combined3Cluster.Seurat.rds")
+```
+
+# note the packages
+```{r}
+sessionInfo()
+```
